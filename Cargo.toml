@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# NavigationView kullanabilmek için en az "v1_4" özelliği gereklidir.
-# Arch Linux kullandığın için güncel "v1_5" özelliklerini açabiliriz.
 libadwaita = { version = "0.7", features = ["v1_5"] }
 gtk4 = { version = "0.9", features = ["v4_12"] }
 sys-locale = "0.3.2"
