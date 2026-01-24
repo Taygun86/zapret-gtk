@@ -569,7 +569,7 @@ fn build_ui(app: &Application) {
             .program_name("Zapret GTK")
             .logo(&texture)
             .comments(&t("Zapret için modern GTK4 arayüzü."))
-            .website("https://github.com/bol-van/zapret")
+            .website("https://github.com/Taygun86/zapret-gtk")
             .copyright("© 2026 Zapret GTK")
             .license_type(gtk::License::Gpl30)
             .build();
