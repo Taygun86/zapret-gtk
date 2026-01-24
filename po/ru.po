@@ -1,0 +1,54 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: zapret-gtk\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-01-24 12:00+0000\n"
+"PO-Revision-Date: 2024-01-24 12:00+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Hazır"
+msgstr "Готово"
+
+msgid "Bu uygulama, Zapret'in GTK arayüzü üzerinden kurulmasını ve yönetilmesini sağlayan bir uygulamadır"
+msgstr "Это приложение позволяет устанавливать и управлять Zapret через интерфейс GTK"
+
+msgid "Kuruluma Başla"
+msgstr "Начать установку"
+
+msgid "Zapret GTK"
+msgstr "Zapret GTK"
+
+msgid "Sistem ve VPN çakışmaları taranıyor..."
+msgstr "Поиск конфликтов системы и VPN..."
+
+msgid "Yine de Devam Et"
+msgstr "Всё равно продолжить"
+
+msgid "Stratejiler aranıyor..."
+msgstr "Поиск стратегий..."
+
+msgid "Bu işlem internet hızınıza göre zaman alabilir.\nLütfen bekleyiniz."
+msgstr "Этот процесс может занять время в зависимости от скорости интернета.\nПожалуйста, подождите."
+
+msgid "Denenen Stratejiler: 0"
+msgstr "Опробовано стратегий: 0"
+
+msgid "İptal"
+msgstr "Отмена"
+
+msgid "Listeyi doldurun (Enter tuşu yeni satır ekler):"
+msgstr "Заполните список (Enter для новой строки):"
+
+msgid "Yeni satır ekle"
+msgstr "Добавить новую строку"
+
+msgid "İçe Aktar"
+msgstr "Импорт"
+
+msgid "Strateji aramasını başlat."
+msgstr "Запустить поиск стратегий."
