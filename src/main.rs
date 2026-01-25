@@ -1814,7 +1814,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
         
         if cancel_flag_thread.load(Ordering::Relaxed) { return; }
 
-        let binary_deps = vec!["curl", "ipset", "iptables", "make", "gcc", "dnsutils", "dnscrypt-proxy"];
+        let binary_deps = vec!["git", "curl", "ipset", "iptables", "make", "gcc", "dig", "dnscrypt-proxy"];
         let mut dep_install_commands = Vec::new();
 
         for dep in binary_deps {
@@ -2158,6 +2158,13 @@ fn get_package_install_command(distro: &str, package: &str) -> Vec<String> {
             "alpine" => p = "libnetfilter_queue-dev libnfnetlink-dev".to_string(),
             "arch" | "manjaro" | "endeavouros" | "cachyos" => p = "libnetfilter_queue libnfnetlink".to_string(),
             _ => p = "libnetfilter_queue-devel".to_string(),
+        }
+    } else if package == "dig" {
+        match distro {
+            "void" | "fedora" => p = "bind-utils".to_string(),
+            "alpine" => p = "bind-tools".to_string(),
+            "arch" | "manjaro" | "endeavouros" | "cachyos" => p = "bind".to_string(),
+            _ => p = "dnsutils".to_string(),
         }
     }
 
