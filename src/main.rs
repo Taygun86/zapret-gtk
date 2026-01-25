@@ -538,7 +538,7 @@ fn build_ui(app: &Application) {
 
     let page_mgmt = NavigationPage::builder()
         .child(&view_mgmt)
-        .title(&t("Yönetim Paneli"))
+        .title(&t("Zapret GTK"))
         .tag("management_page")
         .build();
 
