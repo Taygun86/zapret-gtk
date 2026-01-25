@@ -52,3 +52,261 @@ msgstr "Import"
 
 msgid "Strateji aramasını başlat."
 msgstr "Start strategy search."
+
+msgid "Zapret için modern GTK4 arayüzü."
+msgstr "Modern GTK4 interface for Zapret."
+
+msgid "Şu servisler kapatılmalı: {}"
+msgstr "The following services must be stopped: {}"
+
+msgid "Çakışan Uygulamalar Tespit Edildi!"
+msgstr "Conflicting Applications Detected!"
+
+msgid "Dosya geçerli bir JSON listesi (array) formatında değil."
+msgstr "The file is not in valid JSON list (array) format."
+
+msgid "Dosya içerisinde strateji bulunamadı."
+msgstr "No strategy found in the file."
+
+msgid "Geçersiz strateji: '{}'. Stratejiler '--' ile başlamalıdır."
+msgstr "Invalid strategy: '{}'. Strategies must start with '--'."
+
+msgid "blockcheck.sh bulunamadı: {}"
+msgstr "blockcheck.sh not found: {}"
+
+msgid "Stdout alınamadı."
+msgstr "Stdout could not be retrieved."
+
+msgid "install_easy.sh bulunamadı"
+msgstr "install_easy.sh not found"
+
+msgid "Kurulum başarısız. Kod: {}"
+msgstr "Installation failed. Code: {}"
+
+msgid "Yetki onayı bekleniyor..."
+msgstr "Waiting for authorization..."
+
+msgid "Eski dosyalar temizleniyor..."
+msgstr "Cleaning old files..."
+
+msgid "Eksik paketler kuruluyor..."
+msgstr "Installing missing packages..."
+
+msgid "DNSCrypt-proxy kuruluyor..."
+msgstr "Installing DNSCrypt-proxy..."
+
+msgid "DNS ayarları yapılıyor..."
+msgstr "Configuring DNS settings..."
+
+msgid "Ağ ayarları ve servisler başlatılıyor..."
+msgstr "Starting network settings and services..."
+
+msgid "NetworkManager Bekleniyor..."
+msgstr "Waiting for NetworkManager..."
+
+msgid "İşlem başarısız (Kod: {c}). Son çıktı: {e}"
+msgstr "Process failed (Code: {c}). Last output: {e}"
+
+msgid "İşlem başarısız (Kod: {}). Yetki verilmedi veya bilinmeyen hata."
+msgstr "Process failed (Code: {}). Permission denied or unknown error."
+
+msgid "Zapret deposu indiriliyor..."
+msgstr "Downloading Zapret repository..."
+
+msgid "Zapret derleniyor (make)..."
+msgstr "Compiling Zapret (make)..."
+
+msgid "Make hatası ({c}): {e}"
+msgstr "Make error ({c}): {e}"
+
+msgid "Make komutu başlatılamadı. 'make' kurulu mu?"
+msgstr "Make command could not be started. Is 'make' installed?"
+
+msgid "Git clone hatası."
+msgstr "Git clone error."
+
+msgid "Mevcut zapret klasörü kullanılıyor."
+msgstr "Using existing zapret folder."
+
+msgid "Aşağıda blockcheck testi sonucunda bulunan çalışan stratejiler listelenmiştir.\nKullanmak istediklerinizi seçip servisi yeniden başlatın."
+msgstr "Below are the working strategies found as a result of the blockcheck test.\nSelect the ones you want to use and restart the service."
+
+msgid "Başarılı"
+msgstr "Success"
+
+msgid "Başlat"
+msgstr "Start"
+
+msgid "Blockcheck çalıştırılamadı: {}"
+msgstr "Blockcheck could not be run: {}"
+
+msgid "Blockcheck taraması için bir hız ve kapsam seviyesi belirleyin."
+msgstr "Set a speed and scope level for the Blockcheck scan."
+
+msgid "Bulunan Stratejiler"
+msgstr "Found Strategies"
+
+msgid "Config dosyası okunamadı: {}"
+msgstr "Config file could not be read: {}"
+
+msgid "Çalışıyor (Active)"
+msgstr "Running (Active)"
+
+msgid "Detaylı\n(3 Deneme, Force)"
+msgstr "Detailed\n(3 Tries, Force)"
+
+msgid "Devam"
+msgstr "Continue"
+
+msgid "Dışa Aktar"
+msgstr "Export"
+
+msgid "Dosya dışa aktarıldı."
+msgstr "File exported."
+
+msgid "Dosya içe aktarılamadı: {}"
+msgstr "File could not be imported: {}"
+
+msgid "Dosya kaydedilemedi: {}"
+msgstr "File could not be saved: {}"
+
+msgid "Dosya okunamadı"
+msgstr "File could not be read"
+
+msgid "Durdur"
+msgstr "Stop"
+
+msgid "'{}' geçerli bir alan adı formatı değil.\nLütfen 'http://', 'https://' veya 'www.' kullanmadan sadece alan adını girin (örnek: google.com)."
+msgstr "'{}' is not a valid domain name format.\nPlease enter only the domain name without 'http://', 'https://' or 'www.' (example: google.com)."
+
+msgid "Geçici dosya oluşturulamadı: {}"
+msgstr "Temporary file could not be created: {}"
+
+msgid "Hakkında"
+msgstr "About"
+
+msgid "Hata"
+msgstr "Error"
+
+msgid "Hatalı Alan Adı"
+msgstr "Invalid Domain Name"
+
+msgid "Henüz kaydedilmiş strateji bulunmuyor."
+msgstr "No saved strategies found yet."
+
+msgid "Hızlı\n(1 Deneme, Quick)"
+msgstr "Quick\n(1 Try, Quick)"
+
+msgid "Icon load fail"
+msgstr "Icon load fail"
+
+msgid "Install script hatası: {}"
+msgstr "Install script error: {}"
+
+msgid "JSON Dosyaları"
+msgstr "JSON Files"
+
+msgid "Kaydet"
+msgstr "Save"
+
+msgid "Kaydetme Hatası"
+msgstr "Saving Error"
+
+msgid "Klasör Bulundu"
+msgstr "Folder Found"
+
+msgid "Komut hatası: {}"
+msgstr "Command error: {}"
+
+msgid "Kontrol ediliyor..."
+msgstr "Checking..."
+
+msgid "Kurulum bitti. Devam edebilirsiniz."
+msgstr "Installation finished. You can continue."
+
+msgid "Kurulum Hatası"
+msgstr "Installation Error"
+
+msgid "Lütfen en az bir strateji seçin."
+msgstr "Please select at least one strategy."
+
+msgid "Lütfen test edilecek en az bir alan adı girin."
+msgstr "Please enter at least one domain name to test."
+
+msgid "Mevcut bir 'zapret' klasörü tespit edildi. Ne yapmak istersiniz?"
+msgstr "An existing 'zapret' folder was detected. What would you like to do?"
+
+msgid "Mevcut Olanı Kullan"
+msgstr "Use Existing"
+
+msgid "Normal\n(3 Deneme, Standard)"
+msgstr "Normal\n(3 Tries, Standard)"
+
+msgid "Okuma Hatası"
+msgstr "Read Error"
+
+msgid "pkexec başlatılamadı"
+msgstr "pkexec could not be started"
+
+msgid "Servis başlatılamadı:\n{}"
+msgstr "Service could not be started:\n{}"
+
+msgid "Servis durumu alınamadı"
+msgstr "Service status could not be retrieved"
+
+msgid "Sil ve İndir"
+msgstr "Delete and Download"
+
+msgid "Sorun bulunmadı."
+msgstr "No issues found."
+
+msgid "Strateji Bulma Hatası"
+msgstr "Strategy Discovery Error"
+
+msgid "Strateji Dosyası Seç"
+msgstr "Select Strategy File"
+
+msgid "Stratejiler config dosyasına yazıldı ve Zapret servisi yeniden başlatıldı."
+msgstr "Strategies written to config file and Zapret service restarted."
+
+msgid "Stratejileri Kaydet"
+msgstr "Save Strategies"
+
+msgid "Tamam"
+msgstr "OK"
+
+msgid "Tarama Modu Seçin"
+msgstr "Select Scan Mode"
+
+msgid "Tekrar Dene"
+msgstr "Try Again"
+
+msgid "Uyarı"
+msgstr "Warning"
+
+msgid "Uygula ve Servisi Başlat"
+msgstr "Apply and Start Service"
+
+msgid "Vazgeç"
+msgstr "Cancel"
+
+msgid "Veri girin..."
+msgstr "Enter data..."
+
+msgid "Zapret Durumu"
+msgstr "Zapret Status"
+
+msgid "Zapret Kuruluyor (/opt/zapret)..."
+msgstr "Installing Zapret (/opt/zapret)..."
+
+msgid "© 2026 Zapret GTK"
+msgstr "© 2026 Zapret GTK"
+
+msgid "Hata: {}"
+msgstr "Error: {}"
+
+msgid "Denenen Stratejiler: {}"
+msgstr "Tried Strategies: {}"
+
+msgid "Durdu ({})"
+msgstr "Stopped ({})"

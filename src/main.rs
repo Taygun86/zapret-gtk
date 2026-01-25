@@ -522,7 +522,7 @@ fn build_ui(app: &Application) {
                     status_label_mgmt_timer.add_css_class("success");
                     status_label_mgmt_timer.remove_css_class("error");
                 } else {
-                    status_label_mgmt_timer.set_label(&format!("Durdu ({})", status_text));
+                    status_label_mgmt_timer.set_label(&t("Durdu ({})").replace("{}", &status_text));
                     status_label_mgmt_timer.add_css_class("error");
                     status_label_mgmt_timer.remove_css_class("success");
                 }
@@ -1262,7 +1262,7 @@ fn build_ui(app: &Application) {
                             },
                             TestMsg::ProgressTick => {
                                 count += 1;
-                                lbl_timer.set_label(&format!("Denenen Stratejiler: {}", count));
+                                lbl_timer.set_label(&t("Denenen Stratejiler: {}").replace("{}", &count.to_string()));
                                 glib::ControlFlow::Continue
                             },
                             TestMsg::Log(line) => {
@@ -2110,7 +2110,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                                 btn.set_label(&t("Tekrar Dene"));
                                 btn.remove_css_class("destructive-action");
                                 btn.add_css_class("warning");
-                                lbl.set_label(&format!("Hata: {}", e));
+                                lbl.set_label(&t("Hata: {}").replace("{}", &e.to_string()));
                             }
                         }
                         glib::ControlFlow::Break

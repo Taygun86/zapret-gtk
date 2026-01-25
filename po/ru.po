@@ -52,3 +52,261 @@ msgstr "Импорт"
 
 msgid "Strateji aramasını başlat."
 msgstr "Запустить поиск стратегий."
+
+msgid "Zapret için modern GTK4 arayüzü."
+msgstr "Современный интерфейс GTK4 для Zapret."
+
+msgid "Şu servisler kapatılmalı: {}"
+msgstr "Следующие службы должны быть остановлены: {}"
+
+msgid "Çakışan Uygulamalar Tespit Edildi!"
+msgstr "Обнаружены конфликтующие приложения!"
+
+msgid "Dosya geçerli bir JSON listesi (array) formatında değil."
+msgstr "Файл не является допустимым списком JSON (массивом)."
+
+msgid "Dosya içerisinde strateji bulunamadı."
+msgstr "Стратегии в файле не найдены."
+
+msgid "Geçersiz strateji: '{}'. Stratejiler '--' ile başlamalıdır."
+msgstr "Неверная стратегия: '{}'. Стратегии должны начинаться с '--'."
+
+msgid "blockcheck.sh bulunamadı: {}"
+msgstr "blockcheck.sh не найден: {}"
+
+msgid "Stdout alınamadı."
+msgstr "Не удалось получить Stdout."
+
+msgid "install_easy.sh bulunamadı"
+msgstr "install_easy.sh не найден"
+
+msgid "Kurulum başarısız. Kod: {}"
+msgstr "Установка не удалась. Код: {}"
+
+msgid "Yetki onayı bekleniyor..."
+msgstr "Ожидание подтверждения прав..."
+
+msgid "Eski dosyalar temizleniyor..."
+msgstr "Очистка старых файлов..."
+
+msgid "Eksik paketler kuruluyor..."
+msgstr "Установка недостающих пакетов..."
+
+msgid "DNSCrypt-proxy kuruluyor..."
+msgstr "Установка DNSCrypt-proxy..."
+
+msgid "DNS ayarları yapılıyor..."
+msgstr "Настройка DNS..."
+
+msgid "Ağ ayarları ve servisler başlatılıyor..."
+msgstr "Запуск сетевых настроек и служб..."
+
+msgid "NetworkManager Bekleniyor..."
+msgstr "Ожидание NetworkManager..."
+
+msgid "İşlem başarısız (Kod: {c}). Son çıktı: {e}"
+msgstr "Ошибка процесса (Код: {c}). Последний вывод: {e}"
+
+msgid "İşlem başarısız (Kod: {}). Yetki verilmedi veya bilinmeyen hata."
+msgstr "Ошибка процесса (Код: {}). Отказано в доступе или неизвестная ошибка."
+
+msgid "Zapret deposu indiriliyor..."
+msgstr "Загрузка репозитория Zapret..."
+
+msgid "Zapret derleniyor (make)..."
+msgstr "Компиляция Zapret (make)..."
+
+msgid "Make hatası ({c}): {e}"
+msgstr "Ошибка Make ({c}): {e}"
+
+msgid "Make komutu başlatılamadı. 'make' kurulu mu?"
+msgstr "Не удалось запустить make. Установлен ли 'make'?"
+
+msgid "Git clone hatası."
+msgstr "Ошибка git clone."
+
+msgid "Mevcut zapret klasörü kullanılıyor."
+msgstr "Используется существующая папка zapret."
+
+msgid "Aşağıda blockcheck testi sonucunda bulunan çalışan stratejiler listelenmiştir.\nKullanmak istediklerinizi seçip servisi yeniden başlatın."
+msgstr "Ниже перечислены работающие стратегии, найденные в результате теста blockcheck.\nВыберите те, которые хотите использовать, и перезапустите службу."
+
+msgid "Başarılı"
+msgstr "Успешно"
+
+msgid "Başlat"
+msgstr "Запустить"
+
+msgid "Blockcheck çalıştırılamadı: {}"
+msgstr "Не удалось запустить Blockcheck: {}"
+
+msgid "Blockcheck taraması için bir hız ve kapsam seviyesi belirleyin."
+msgstr "Выберите уровень скорости и охвата для сканирования Blockcheck."
+
+msgid "Bulunan Stratejiler"
+msgstr "Найденные стратегии"
+
+msgid "Config dosyası okunamadı: {}"
+msgstr "Не удалось прочитать файл конфигурации: {}"
+
+msgid "Çalışıyor (Active)"
+msgstr "Работает (Active)"
+
+msgid "Detaylı\n(3 Deneme, Force)"
+msgstr "Подробно\n(3 Попытки, Force)"
+
+msgid "Devam"
+msgstr "Продолжить"
+
+msgid "Dışa Aktar"
+msgstr "Экспорт"
+
+msgid "Dosya dışa aktarıldı."
+msgstr "Файл экспортирован."
+
+msgid "Dosya içe aktarılamadı: {}"
+msgstr "Не удалось импортировать файл: {}"
+
+msgid "Dosya kaydedilemedi: {}"
+msgstr "Не удалось сохранить файл: {}"
+
+msgid "Dosya okunamadı"
+msgstr "Не удалось прочитать файл"
+
+msgid "Durdur"
+msgstr "Остановить"
+
+msgid "'{}' geçerli bir alan adı formatı değil.\nLütfen 'http://', 'https://' veya 'www.' kullanmadan sadece alan adını girin (örnek: google.com)."
+msgstr "'{}' не является допустимым форматом доменного имени.\nПожалуйста, введите только имя домена без 'http://', 'https://' или 'www.' (например: google.com)."
+
+msgid "Geçici dosya oluşturulamadı: {}"
+msgstr "Не удалось создать временный файл: {}"
+
+msgid "Hakkında"
+msgstr "О программе"
+
+msgid "Hata"
+msgstr "Ошибка"
+
+msgid "Hatalı Alan Adı"
+msgstr "Неверное доменное имя"
+
+msgid "Henüz kaydedilmiş strateji bulunmuyor."
+msgstr "Сохраненных стратегий пока нет."
+
+msgid "Hızlı\n(1 Deneme, Quick)"
+msgstr "Быстро\n(1 Попытка, Quick)"
+
+msgid "Icon load fail"
+msgstr "Ошибка загрузки иконки"
+
+msgid "Install script hatası: {}"
+msgstr "Ошибка скрипта установки: {}"
+
+msgid "JSON Dosyaları"
+msgstr "Файлы JSON"
+
+msgid "Kaydet"
+msgstr "Сохранить"
+
+msgid "Kaydetme Hatası"
+msgstr "Ошибка сохранения"
+
+msgid "Klasör Bulundu"
+msgstr "Папка найдена"
+
+msgid "Komut hatası: {}"
+msgstr "Ошибка команды: {}"
+
+msgid "Kontrol ediliyor..."
+msgstr "Проверка..."
+
+msgid "Kurulum bitti. Devam edebilirsiniz."
+msgstr "Установка завершена. Вы можете продолжить."
+
+msgid "Kurulum Hatası"
+msgstr "Ошибка установки"
+
+msgid "Lütfen en az bir strateji seçin."
+msgstr "Пожалуйста, выберите хотя бы одну стратегию."
+
+msgid "Lütfen test edilecek en az bir alan adı girin."
+msgstr "Пожалуйста, введите хотя бы одно доменное имя для проверки."
+
+msgid "Mevcut bir 'zapret' klasörü tespit edildi. Ne yapmak istersiniz?"
+msgstr "Обнаружена существующая папка 'zapret'. Что вы хотите сделать?"
+
+msgid "Mevcut Olanı Kullan"
+msgstr "Использовать существующую"
+
+msgid "Normal\n(3 Deneme, Standard)"
+msgstr "Нормально\n(3 Попытки, Standard)"
+
+msgid "Okuma Hatası"
+msgstr "Ошибка чтения"
+
+msgid "pkexec başlatılamadı"
+msgstr "Не удалось запустить pkexec"
+
+msgid "Servis başlatılamadı:\n{}"
+msgstr "Не удалось запустить службу:\n{}"
+
+msgid "Servis durumu alınamadı"
+msgstr "Не удалось получить состояние службы"
+
+msgid "Sil ve İndir"
+msgstr "Удалить и скачать"
+
+msgid "Sorun bulunmadı."
+msgstr "Проблем не обнаружено."
+
+msgid "Strateji Bulma Hatası"
+msgstr "Ошибка поиска стратегий"
+
+msgid "Strateji Dosyası Seç"
+msgstr "Выберите файл стратегии"
+
+msgid "Stratejiler config dosyasına yazıldı ve Zapret servisi yeniden başlatıldı."
+msgstr "Стратегии записаны в конфигурационный файл, и служба Zapret перезапущена."
+
+msgid "Stratejileri Kaydet"
+msgstr "Сохранить стратегии"
+
+msgid "Tamam"
+msgstr "ОК"
+
+msgid "Tarama Modu Seçin"
+msgstr "Выберите режим сканирования"
+
+msgid "Tekrar Dene"
+msgstr "Попробовать снова"
+
+msgid "Uyarı"
+msgstr "Предупреждение"
+
+msgid "Uygula ve Servisi Başlat"
+msgstr "Применить и запустить службу"
+
+msgid "Vazgeç"
+msgstr "Отмена"
+
+msgid "Veri girin..."
+msgstr "Введите данные..."
+
+msgid "Zapret Durumu"
+msgstr "Статус Zapret"
+
+msgid "Zapret Kuruluyor (/opt/zapret)..."
+msgstr "Установка Zapret (/opt/zapret)..."
+
+msgid "© 2026 Zapret GTK"
+msgstr "© 2026 Zapret GTK"
+
+msgid "Hata: {}"
+msgstr "Ошибка: {}"
+
+msgid "Denenen Stratejiler: {}"
+msgstr "Проверено стратегий: {}"
+
+msgid "Durdu ({})"
+msgstr "Остановлено ({})"
