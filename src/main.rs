@@ -897,7 +897,7 @@ fn build_ui(app: &Application) {
                             lbl.set_label(&t("Çakışan Uygulamalar Tespit Edildi!"));
                             lbl.add_css_class("error");
                             let list_str = conflicts.join(", ");
-                            lst.set_label(&format!("Şu servisler kapatılmalı: {}", list_str));
+                            lst.set_label(&t("Şu servisler kapatılmalı: {}").replace("{}", &list_str));
                             btn.set_visible(true);
                         }
                         glib::ControlFlow::Break
@@ -1399,7 +1399,7 @@ fn validate_and_copy_strategies(path: &Path) -> io::Result<()> {
     let trimmed = content.trim();
 
     if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "Dosya geçerli bir JSON listesi (array) formatında değil."));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, t("Dosya geçerli bir JSON listesi (array) formatında değil.")));
     }
 
     let mut in_string = false;
@@ -1429,12 +1429,12 @@ fn validate_and_copy_strategies(path: &Path) -> io::Result<()> {
     }
 
     if strategies.is_empty() {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "Dosya içerisinde strateji bulunamadı."));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, t("Dosya içerisinde strateji bulunamadı.")));
     }
 
     for s in strategies {
         if !s.trim().starts_with("--") {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Geçersiz strateji: '{}'. Stratejiler '--' ile başlamalıdır.", s)));
+            return Err(io::Error::new(io::ErrorKind::InvalidData, t("Geçersiz strateji: '{}'. Stratejiler '--' ile başlamalıdır.").replace("{}", &s)));
         }
     }
 
@@ -1494,7 +1494,7 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
     let blockcheck_script = zapret_dir.join("blockcheck.sh");
     
     if !blockcheck_script.exists() {
-        let _ = sender.send(TestMsg::Finished(Err(io::Error::new(io::ErrorKind::NotFound, format!("blockcheck.sh bulunamadı: {}", blockcheck_script.display())))));
+        let _ = sender.send(TestMsg::Finished(Err(io::Error::new(io::ErrorKind::NotFound, t("blockcheck.sh bulunamadı: {}").replace("{}", &blockcheck_script.display().to_string())))));
         return;
     }
 
@@ -1621,7 +1621,7 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
         let _ = sender.send(TestMsg::Finished(Ok(strategies)));
 
     } else {
-        let _ = sender.send(TestMsg::Finished(Err(io::Error::new(io::ErrorKind::Other, "Stdout alınamadı."))));
+        let _ = sender.send(TestMsg::Finished(Err(io::Error::new(io::ErrorKind::Other, t("Stdout alınamadı.")))));
     }
 }
 
@@ -1630,7 +1630,7 @@ fn run_easy_install_script(sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<Atomi
     let install_script = zapret_dir.join("install_easy.sh");
     
     if !install_script.exists() {
-        let _ = sender.send(TestMsg::InstallFinished(Err(io::Error::new(io::ErrorKind::NotFound, "install_easy.sh bulunamadı"))));
+        let _ = sender.send(TestMsg::InstallFinished(Err(io::Error::new(io::ErrorKind::NotFound, t("install_easy.sh bulunamadı")))));
         return;
     }
 
@@ -1701,7 +1701,7 @@ fn run_easy_install_script(sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<Atomi
              let _ = sender.send(TestMsg::InstallFinished(Ok(())));
         },
         Ok(s) => {
-             let _ = sender.send(TestMsg::InstallFinished(Err(io::Error::new(io::ErrorKind::Other, format!("Kurulum başarısız. Kod: {}", s.code().unwrap_or(-1))))));
+             let _ = sender.send(TestMsg::InstallFinished(Err(io::Error::new(io::ErrorKind::Other, t("Kurulum başarısız. Kod: {}").replace("{}", &s.code().unwrap_or(-1).to_string())))));
         },
         Err(e) => {
              let _ = sender.send(TestMsg::InstallFinished(Err(e)));
@@ -1909,7 +1909,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
         if cancel_flag_thread.load(Ordering::Relaxed) { return; }
 
         if needs_root_permission {
-            let _ = sender.send(AppMsg::Status("Yetki onayı bekleniyor...".to_string()));
+            let _ = sender.send(AppMsg::Status(t("Yetki onayı bekleniyor...")));
             
             let script_path = "/tmp/zapret_installer_job.sh";
             if let Ok(mut file) = fs::File::create(script_path) {
@@ -1942,15 +1942,15 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                         }
 
                         if l.contains("STATUS:CLEANING") {
-                            let _ = sender.send(AppMsg::Status("Eski dosyalar temizleniyor...".to_string()));
+                            let _ = sender.send(AppMsg::Status(t("Eski dosyalar temizleniyor...")));
                         } else if l.contains("STATUS:INSTALLING_DEPS") {
-                            let _ = sender.send(AppMsg::Status("Eksik paketler kuruluyor...".to_string()));
+                            let _ = sender.send(AppMsg::Status(t("Eksik paketler kuruluyor...")));
                         } else if l.contains("STATUS:INSTALLING") {
-                            let _ = sender.send(AppMsg::Status("DNSCrypt-proxy kuruluyor...".to_string()));
+                            let _ = sender.send(AppMsg::Status(t("DNSCrypt-proxy kuruluyor...")));
                         } else if l.contains("STATUS:CONFIGURING") {
-                            let _ = sender.send(AppMsg::Status("DNS ayarları yapılıyor...".to_string()));
+                            let _ = sender.send(AppMsg::Status(t("DNS ayarları yapılıyor...")));
                         } else if l.contains("STATUS:FINALIZING") {
-                            let _ = sender.send(AppMsg::Status("Ağ ayarları ve servisler başlatılıyor...".to_string()));
+                            let _ = sender.send(AppMsg::Status(t("Ağ ayarları ve servisler başlatılıyor...")));
                         }
                     }
                 }
@@ -1964,16 +1964,18 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
 
             match status {
                 Ok(s) if s.success() => {
-                    let _ = sender.send(AppMsg::Status("NetworkManager Bekleniyor...".to_string()));
+                    let _ = sender.send(AppMsg::Status(t("NetworkManager Bekleniyor...")));
                     let _ = fs::remove_file(script_path);
                     
                     thread::sleep(Duration::from_secs(5));
                 },
                 Ok(s) => {
                     let error_msg = if !last_error_line.is_empty() {
-                         format!("İşlem başarısız (Kod: {}). Son çıktı: {}", s.code().unwrap_or(-1), last_error_line)
+                         t("İşlem başarısız (Kod: {c}). Son çıktı: {e}")
+                            .replace("{c}", &s.code().unwrap_or(-1).to_string())
+                            .replace("{e}", &last_error_line)
                     } else {
-                         format!("İşlem başarısız (Kod: {}). Yetki verilmedi veya bilinmeyen hata.", s.code().unwrap_or(-1))
+                         t("İşlem başarısız (Kod: {}). Yetki verilmedi veya bilinmeyen hata.").replace("{}", &s.code().unwrap_or(-1).to_string())
                     };
                     let _ = sender.send(AppMsg::Done(Err(io::Error::new(io::ErrorKind::PermissionDenied, error_msg))));
                     return;
@@ -1988,7 +1990,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
         if cancel_flag_thread.load(Ordering::Relaxed) { return; }
 
         if !zapret_full_path.exists() {
-            let _ = sender.send(AppMsg::Status("Zapret deposu indiriliyor...".to_string()));
+            let _ = sender.send(AppMsg::Status(t("Zapret deposu indiriliyor...")));
             
             let git_result = Command::new("git")
                 .args(["clone", "https://github.com/bol-van/zapret.git", zapret_path_str.as_str()])
@@ -1998,7 +2000,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                 Ok(s) if s.success() => {
                     if cancel_flag_thread.load(Ordering::Relaxed) { return; }
 
-                    let _ = sender.send(AppMsg::Status("Zapret derleniyor (make)...".to_string()));
+                    let _ = sender.send(AppMsg::Status(t("Zapret derleniyor (make)...")));
                     
                     let mut make_cmd = Command::new("make");
                     make_cmd.arg("-C").arg(&zapret_full_path);
@@ -2037,25 +2039,25 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                                  let _ = sender.send(AppMsg::Done(Ok(())));
                             },
                             Ok(m) => {
-                                 let _ = sender.send(AppMsg::Done(Err(io::Error::new(io::ErrorKind::Other, format!("Make hatası ({}): {}", m.code().unwrap_or(-1), make_last_error)))));
+                                 let _ = sender.send(AppMsg::Done(Err(io::Error::new(io::ErrorKind::Other, t("Make hatası ({c}): {e}").replace("{c}", &m.code().unwrap_or(-1).to_string()).replace("{e}", &make_last_error)))));
                             },
                             Err(e) => {
                                  let _ = sender.send(AppMsg::Done(Err(e)));
                             }
                         }
                     } else {
-                         let _ = sender.send(AppMsg::Done(Err(io::Error::new(io::ErrorKind::Other, "Make komutu başlatılamadı. 'make' kurulu mu?"))));
+                         let _ = sender.send(AppMsg::Done(Err(io::Error::new(io::ErrorKind::Other, t("Make komutu başlatılamadı. 'make' kurulu mu?")))));
                     }
                 },
                 Ok(_) => {
-                    let _ = sender.send(AppMsg::Done(Err(io::Error::new(io::ErrorKind::Other, "Git clone hatası."))));
+                    let _ = sender.send(AppMsg::Done(Err(io::Error::new(io::ErrorKind::Other, t("Git clone hatası.")))));
                 },
                 Err(e) => {
                     let _ = sender.send(AppMsg::Done(Err(e)));
                 }
             }
         } else {
-             let _ = sender.send(AppMsg::Status("Mevcut zapret klasörü kullanılıyor.".to_string()));
+             let _ = sender.send(AppMsg::Status(t("Mevcut zapret klasörü kullanılıyor.")));
              thread::sleep(Duration::from_millis(500));
              if cancel_flag_thread.load(Ordering::Relaxed) { return; }
              let _ = sender.send(AppMsg::Done(Ok(())));
