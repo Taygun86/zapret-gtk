@@ -303,9 +303,11 @@ fn build_ui(app: &Application) {
     top_box2.set_vexpand(true);
 
     let info_label = Label::builder()
-        .label(&t("Listeyi doldurun (Enter tuşu yeni satır ekler):"))
+        .label(&t("Erişemediğiniz web sitelerinin alan adlarını, her satıra bir tane gelecek şekilde yazın. Başlarına 'https://' ve 'www.' eklemeyin. Örnek: (a.com), (b.net)"))
         .margin_top(15)
         .margin_bottom(10)
+        .wrap(true)
+        .justify(gtk::Justification::Center)
         .build();
     top_box2.append(&info_label);
 

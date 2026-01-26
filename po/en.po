@@ -41,8 +41,8 @@ msgstr "Strategies Tried: 0"
 msgid "İptal"
 msgstr "Cancel"
 
-msgid "Listeyi doldurun (Enter tuşu yeni satır ekler):"
-msgstr "Fill the list (Enter adds a new line):"
+msgid "Erişemediğiniz web sitelerinin alan adlarını, her satıra bir tane gelecek şekilde yazın. Başlarına 'https://' ve 'www.' eklemeyin. Örnek: (a.com), (b.net)"
+msgstr "Enter the domain names of the websites you cannot access, one per line. Do not add 'https://' or 'www.' to the beginning. Example: (a.com), (b.net)"
 
 msgid "Yeni satır ekle"
 msgstr "Add new line"

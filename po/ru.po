@@ -41,8 +41,8 @@ msgstr "Опробовано стратегий: 0"
 msgid "İptal"
 msgstr "Отмена"
 
-msgid "Listeyi doldurun (Enter tuşu yeni satır ekler):"
-msgstr "Заполните список (Enter для новой строки):"
+msgid "Erişemediğiniz web sitelerinin alan adlarını, her satıra bir tane gelecek şekilde yazın. Başlarına 'https://' ve 'www.' eklemeyin. Örnek: (a.com), (b.net)"
+msgstr "Введите доменные имена сайтов, к которым у вас нет доступа, по одному в каждой строке. Не добавляйте 'https://' и 'www.' в начале. Пример: (a.com), (b.net)"
 
 msgid "Yeni satır ekle"
 msgstr "Добавить новую строку"
