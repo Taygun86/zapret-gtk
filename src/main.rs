@@ -1832,7 +1832,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
              }
         }
         
-        let lib_deps = vec!["zlib", "libnetfilter_queue"];
+        let lib_deps = vec!["zlib", "libnetfilter_queue", "libmnl", "libcap"];
         for lib in lib_deps {
              let install_parts = get_package_install_command(&distro_id, lib);
              if !install_parts.is_empty() {
@@ -1887,23 +1887,13 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
 
 
         {
-            let resolv_content = "nameserver ::1\nnameserver 127.0.0.1\noptions edns0\n";
-            let temp_resolv_path = "/tmp/zapret_gtk_resolv.conf";
-            
-            if let Ok(mut file) = fs::File::create(temp_resolv_path) {
-                if file.write_all(resolv_content.as_bytes()).is_ok() {
-                    root_commands.push_str("echo \"STATUS:FINALIZING\"\n");
-                    
-                    root_commands.push_str(&format!("cp -f {} /etc/resolv.conf\n", temp_resolv_path));
-                    root_commands.push_str("chmod 644 /etc/resolv.conf\n");
+            root_commands.push_str("echo \"STATUS:FINALIZING\"\n");
 
-                    root_commands.push_str("systemctl restart NetworkManager\n");
-                    root_commands.push_str("systemctl enable dnscrypt-proxy.service\n");
-                    root_commands.push_str("systemctl start dnscrypt-proxy.service\n");
-                    
-                    if !needs_root_permission { needs_root_permission = true; }
-                }
-            }
+            root_commands.push_str("systemctl restart NetworkManager\n");
+            root_commands.push_str("systemctl enable dnscrypt-proxy.service\n");
+            root_commands.push_str("systemctl start dnscrypt-proxy.service\n");
+            
+            if !needs_root_permission { needs_root_permission = true; }
         }
 
         if cancel_flag_thread.load(Ordering::Relaxed) { return; }
@@ -2158,6 +2148,22 @@ fn get_package_install_command(distro: &str, package: &str) -> Vec<String> {
             "alpine" => p = "libnetfilter_queue-dev libnfnetlink-dev".to_string(),
             "arch" | "manjaro" | "endeavouros" | "cachyos" => p = "libnetfilter_queue libnfnetlink".to_string(),
             _ => p = "libnetfilter_queue-devel".to_string(),
+        }
+    } else if package == "libmnl" {
+        match distro {
+            "ubuntu" | "debian" | "linuxmint" | "pop" | "kali" => p = "libmnl-dev".to_string(),
+            "fedora" => p = "libmnl-devel".to_string(),
+            "alpine" => p = "libmnl-dev".to_string(),
+            "arch" | "manjaro" | "endeavouros" | "cachyos" => p = "libmnl".to_string(),
+            _ => p = "libmnl-devel".to_string(),
+        }
+    } else if package == "libcap" {
+        match distro {
+            "ubuntu" | "debian" | "linuxmint" | "pop" | "kali" => p = "libcap-dev".to_string(),
+            "fedora" => p = "libcap-devel".to_string(),
+            "alpine" => p = "libcap-dev".to_string(),
+            "arch" | "manjaro" | "endeavouros" | "cachyos" => p = "libcap".to_string(),
+            _ => p = "libcap-devel".to_string(),
         }
     } else if package == "dig" {
         match distro {
