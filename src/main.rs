@@ -5,7 +5,7 @@ use adw::prelude::*;
 use gtk::glib;
 
 use adw::{Application, ApplicationWindow, HeaderBar, NavigationPage, NavigationView, ToolbarView, ResponseAppearance};
-use gtk::{Box, Orientation, Button, ProgressBar, Label, Entry, Spinner, ScrolledWindow, FileFilter, CheckButton};
+use gtk::{Box, Orientation, Button, ProgressBar, Label, Entry, Spinner, ScrolledWindow, FileFilter, CheckButton, ListBox, ListBoxRow, SelectionMode};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
@@ -94,17 +94,19 @@ fn get_zapret_path() -> PathBuf {
 }
 
 fn delete_local_zapret_folder() {
-    let local_zapret = get_zapret_path();
-    if local_zapret.exists() {
-        println!("Yerel zapret klasörü siliniyor: {:?}", local_zapret);
-        if let Err(_) = fs::remove_dir_all(&local_zapret) {
-             let _ = Command::new("pkexec")
-                .arg("rm")
-                .arg("-rf")
-                .arg(local_zapret)
-                .output();
+    thread::spawn(move || {
+        let local_zapret = get_zapret_path();
+        if local_zapret.exists() {
+            println!("Yerel zapret klasörü siliniyor: {:?}", local_zapret);
+            if let Err(_) = fs::remove_dir_all(&local_zapret) {
+                 let _ = Command::new("pkexec")
+                    .arg("rm")
+                    .arg("-rf")
+                    .arg(local_zapret)
+                    .output();
+            }
         }
-    }
+    });
 }
 
 fn build_ui(app: &Application) {
@@ -120,6 +122,8 @@ fn build_ui(app: &Application) {
         .label(&t("Hazır"))
         .margin_top(10)
         .visible(false)
+        .wrap(true)
+        .max_width_chars(40)
         .build();
     top_box1.append(&status_label);
 
@@ -128,6 +132,7 @@ fn build_ui(app: &Application) {
         .margin_top(20)
         .margin_bottom(20)
         .wrap(true)
+        .max_width_chars(40)
         .justify(gtk::Justification::Center)
         .visible(true)
         .build();
@@ -138,6 +143,7 @@ fn build_ui(app: &Application) {
         .use_markup(true)
         .margin_bottom(20)
         .wrap(true)
+        .max_width_chars(40)
         .justify(gtk::Justification::Center)
         .visible(true)
         .build();
@@ -205,6 +211,8 @@ fn build_ui(app: &Application) {
         .label(&t("Sistem ve VPN çakışmaları taranıyor..."))
         .css_classes(vec!["title-2"])
         .margin_bottom(10)
+        .wrap(true)
+        .max_width_chars(40)
         .build();
     content_box_check.append(&status_label_check);
 
@@ -259,6 +267,8 @@ fn build_ui(app: &Application) {
         .label(&t("Stratejiler aranıyor..."))
         .css_classes(vec!["title-1"])
         .margin_bottom(10)
+        .wrap(true)
+        .max_width_chars(30)
         .build();
     top_box_test.append(&label_test_title);
 
@@ -266,6 +276,8 @@ fn build_ui(app: &Application) {
         .label(&t("Bu işlem internet hızınıza göre zaman alabilir.\nLütfen bekleyiniz."))
         .justify(gtk::Justification::Center)
         .margin_bottom(20)
+        .wrap(true)
+        .max_width_chars(40)
         .build();
     top_box_test.append(&label_test_info);
 
@@ -317,6 +329,7 @@ fn build_ui(app: &Application) {
         .margin_top(15)
         .margin_bottom(10)
         .wrap(true)
+        .max_width_chars(40)
         .justify(gtk::Justification::Center)
         .build();
     top_box2.append(&info_label);
@@ -409,12 +422,15 @@ fn build_ui(app: &Application) {
         .label(&t("Bulunan Stratejiler"))
         .css_classes(vec!["title-2"])
         .halign(gtk::Align::Start)
+        .wrap(true)
+        .max_width_chars(30)
         .build();
     top_box_mgmt.append(&mgmt_title);
 
     let mgmt_desc = Label::builder()
         .label(&t("Aşağıda blockcheck testi sonucunda bulunan çalışan stratejiler listelenmiştir.\nKullanmak istediklerinizi seçip servisi yeniden başlatın."))
         .wrap(true)
+        .max_width_chars(40)
         .halign(gtk::Align::Start)
         .margin_bottom(10)
         .build();
@@ -427,8 +443,10 @@ fn build_ui(app: &Application) {
         .css_classes(vec!["card"])
         .build();
 
-    let strategies_list_box = Box::new(Orientation::Vertical, 0);
-    strategies_list_box.add_css_class("boxed-list"); 
+    let strategies_list_box = ListBox::builder()
+        .selection_mode(SelectionMode::None)
+        .css_classes(vec!["boxed-list"])
+        .build();
     scrolled_mgmt.set_child(Some(&strategies_list_box));
     top_box_mgmt.append(&scrolled_mgmt);
 
@@ -492,6 +510,8 @@ fn build_ui(app: &Application) {
         .label(&t("Kontrol ediliyor..."))
         .margin_start(10)
         .halign(gtk::Align::Start)
+        .wrap(true)
+        .max_width_chars(40)
         .build();
     status_box.append(&status_label_mgmt);
     
@@ -503,11 +523,13 @@ fn build_ui(app: &Application) {
     let start_service_btn = Button::builder()
         .icon_name("media-playback-start-symbolic")
         .label(&t("Başlat"))
+        .visible(false)
         .build();
 
     let stop_service_btn = Button::builder()
         .icon_name("media-playback-stop-symbolic")
         .label(&t("Durdur"))
+        .visible(false)
         .build();
         
     service_buttons_box.append(&start_service_btn);
@@ -519,6 +541,8 @@ fn build_ui(app: &Application) {
     content_box_mgmt.append(&status_box);
     
     let status_label_mgmt_timer = status_label_mgmt.clone();
+    let start_btn_timer = start_service_btn.clone();
+    let stop_btn_timer = stop_service_btn.clone();
     
     glib::timeout_add_local(Duration::from_secs(10), move || {
         let output = Command::new("systemctl")
@@ -533,14 +557,20 @@ fn build_ui(app: &Application) {
                     status_label_mgmt_timer.set_label(&t("Çalışıyor (Active)"));
                     status_label_mgmt_timer.add_css_class("success");
                     status_label_mgmt_timer.remove_css_class("error");
+                    start_btn_timer.set_visible(false);
+                    stop_btn_timer.set_visible(true);
                 } else {
                     status_label_mgmt_timer.set_label(&t("Durdu ({})").replace("{}", &status_text));
                     status_label_mgmt_timer.add_css_class("error");
                     status_label_mgmt_timer.remove_css_class("success");
+                    start_btn_timer.set_visible(true);
+                    stop_btn_timer.set_visible(false);
                 }
             },
             Err(_) => {
                 status_label_mgmt_timer.set_label(&t("Servis durumu alınamadı"));
+                start_btn_timer.set_visible(true);
+                stop_btn_timer.set_visible(false);
             }
         }
         glib::ControlFlow::Continue
@@ -579,6 +609,7 @@ fn build_ui(app: &Application) {
          let about = gtk::AboutDialog::builder()
             .transient_for(&win_about)
             .program_name("Zapret GTK")
+            .version("0.3 Beta")
             .logo(&texture)
             .comments(&t("Zapret için modern GTK4 arayüzü."))
             .website("https://github.com/Taygun86/zapret-gtk")
@@ -592,6 +623,7 @@ fn build_ui(app: &Application) {
     let progress_bar_clone = progress_bar.clone();
     let status_label_clone = status_label.clone();
     let placeholder_label_clone = placeholder_label.clone();
+    let dns_warning_label_clone = dns_warning_label.clone();
     let window_clone = window.clone();
     let nav_view_clone = nav_view.clone();
     let window_clone_import = window.clone(); 
@@ -691,11 +723,31 @@ fn build_ui(app: &Application) {
         let mut child = list_box_apply.first_child();
 
         while let Some(widget) = child {
-            if let Ok(check) = widget.clone().downcast::<CheckButton>() {
-                if check.is_active() {
-                   if let Some(label_txt) = check.label() {
-                       selected_strategies.push(label_txt.to_string());
-                   }
+            let content_widget = if let Ok(row) = widget.clone().downcast::<ListBoxRow>() {
+                row.child()
+            } else {
+                Some(widget.clone())
+            };
+
+            if let Some(content) = content_widget {
+                if let Ok(check) = content.downcast::<CheckButton>() {
+                    if check.is_active() {
+                    let val = if let Some(lbl) = check.label() {
+                        Some(lbl)
+                    } else if let Some(child) = check.child() {
+                        if let Ok(lbl) = child.downcast::<Label>() {
+                            Some(lbl.label())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    if let Some(label_txt) = val {
+                        selected_strategies.push(label_txt.to_string());
+                    }
+                    }
                 }
             }
             child = widget.next_sibling();
@@ -795,6 +847,9 @@ fn build_ui(app: &Application) {
         delete_local_zapret_folder();
 
          if let Ok(content) = fs::read_to_string("strategies.json") {
+             let config_content = fs::read_to_string("/opt/zapret/config")
+                 .unwrap_or_else(|_| "".to_string());
+             
              let trimmed = content.trim();
              if trimmed.starts_with('[') {
                 let inner = &trimmed[1..trimmed.len()-1];
@@ -817,8 +872,18 @@ fn build_ui(app: &Application) {
                 }
                 
                 for strat in strategies {
-                    let check = CheckButton::builder()
+                    let is_active = !config_content.is_empty() && config_content.contains(&strat);
+
+                    let child_label = Label::builder()
                         .label(&strat)
+                        .wrap(true)
+                        .max_width_chars(50)
+                        .xalign(0.0)
+                        .build();
+
+                    let check = CheckButton::builder()
+                        .child(&child_label)
+                        .active(is_active)
                         .margin_top(10)
                         .margin_bottom(10)
                         .margin_start(10)
@@ -855,6 +920,7 @@ fn build_ui(app: &Application) {
             button_clone.set_sensitive(true);
 
             placeholder_label_clone.set_visible(true);
+            dns_warning_label_clone.set_visible(true);
             progress_bar_clone.set_visible(false);
             
             status_label_clone.set_label(&t("Hazır"));
@@ -942,6 +1008,7 @@ fn build_ui(app: &Application) {
             let pb_c = progress_bar_clone.clone();
             let lbl_c = status_label_clone.clone();
             let pl_c = placeholder_label_clone.clone();
+            let dns_c = dns_warning_label_clone.clone();
             let is_comp = is_complete_done.clone();
             let is_inst = is_installing_direct.clone();
             let pid_store = install_child_pid_run.clone();
@@ -952,11 +1019,11 @@ fn build_ui(app: &Application) {
                 match response_id {
                     "reject" => {
                         d.close();
-                        run_installation(btn_c.clone(), pb_c.clone(), lbl_c.clone(), pl_c.clone(), true, is_comp.clone(), is_inst.clone(), pid_store.clone(), cancel_flg.clone(), cancel_flg_ui.clone());
+                        run_installation(btn_c.clone(), pb_c.clone(), lbl_c.clone(), pl_c.clone(), dns_c.clone(), true, is_comp.clone(), is_inst.clone(), pid_store.clone(), cancel_flg.clone(), cancel_flg_ui.clone());
                     },
                     "accept" => {
                         d.close();
-                        run_installation(btn_c.clone(), pb_c.clone(), lbl_c.clone(), pl_c.clone(), false, is_comp.clone(), is_inst.clone(), pid_store.clone(), cancel_flg.clone(), cancel_flg_ui.clone());
+                        run_installation(btn_c.clone(), pb_c.clone(), lbl_c.clone(), pl_c.clone(), dns_c.clone(), false, is_comp.clone(), is_inst.clone(), pid_store.clone(), cancel_flg.clone(), cancel_flg_ui.clone());
                     },
                     _ => {
                         d.close();
@@ -966,7 +1033,7 @@ fn build_ui(app: &Application) {
 
             dialog.present();
         } else {
-            run_installation(button_clone.clone(), progress_bar_clone.clone(), status_label_clone.clone(), placeholder_label_clone.clone(), false, is_complete_done.clone(), is_installing_direct.clone(), install_child_pid_run.clone(), install_cancel_flag_run.clone(), install_cancel_flag_ui.clone());
+            run_installation(button_clone.clone(), progress_bar_clone.clone(), status_label_clone.clone(), placeholder_label_clone.clone(), dns_warning_label_clone.clone(), false, is_complete_done.clone(), is_installing_direct.clone(), install_child_pid_run.clone(), install_cancel_flag_run.clone(), install_cancel_flag_ui.clone());
         }
     });
 
@@ -1111,8 +1178,15 @@ fn build_ui(app: &Application) {
                                                                 }
                                                                 
                                                                 for strat in strategies {
-                                                                    let check = CheckButton::builder()
+                                                                    let child_label = Label::builder()
                                                                         .label(&strat)
+                                                                        .wrap(true)
+                                                                        .max_width_chars(50)
+                                                                        .xalign(0.0)
+                                                                        .build();
+
+                                                                    let check = CheckButton::builder()
+                                                                        .child(&child_label)
                                                                         .margin_top(10)
                                                                         .margin_bottom(10)
                                                                         .margin_start(10)
@@ -1362,8 +1436,15 @@ fn build_ui(app: &Application) {
                                                 }
                                                 
                                                 for strat in strategies {
-                                                    let check = CheckButton::builder()
+                                                    let child_label = Label::builder()
                                                         .label(&strat)
+                                                        .wrap(true)
+                                                        .max_width_chars(50)
+                                                        .xalign(0.0)
+                                                        .build();
+
+                                                    let check = CheckButton::builder()
+                                                        .child(&child_label)
                                                         .margin_top(10)
                                                         .margin_bottom(10)
                                                         .margin_start(10)
@@ -1783,13 +1864,14 @@ fn check_processes() -> Vec<String> {
     found
 }
 
-fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label, overwrite: bool, is_complete_flag: Rc<Cell<bool>>, is_installing_flag: Rc<Cell<bool>>, pid_store: Arc<Mutex<Option<u32>>>, cancel_flag: Arc<AtomicBool>, cancel_flag_ui: Arc<AtomicBool>) {
+fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label, dns_label: Label, overwrite: bool, is_complete_flag: Rc<Cell<bool>>, is_installing_flag: Rc<Cell<bool>>, pid_store: Arc<Mutex<Option<u32>>>, cancel_flag: Arc<AtomicBool>, cancel_flag_ui: Arc<AtomicBool>) {
     is_installing_flag.set(true);
     cancel_flag.store(false, Ordering::Relaxed);
 
     btn.set_sensitive(false);
     
     placeholder.set_visible(false);
+    dns_label.set_visible(false);
     pb.set_visible(true);
     lbl.set_visible(true);
     
