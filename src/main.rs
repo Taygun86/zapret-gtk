@@ -1787,11 +1787,25 @@ fn run_easy_install_script(sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<Atomi
     }
     let _ = Command::new("chmod").arg("+x").arg(wrapper_path).output();
 
+    let init_system = get_init_system();
+    let mut post_install_cmds = String::from("sed -i 's/^NFQWS_ENABLE=.*/NFQWS_ENABLE=1/' /opt/zapret/config\n");
+    
+    if init_system == "runit" {
+        post_install_cmds.push_str("if [ -d \"/opt/zapret/init.d/runit/zapret\" ]; then\n");
+        post_install_cmds.push_str("  mkdir -p /etc/sv/zapret\n");
+        post_install_cmds.push_str("  cp -r /opt/zapret/init.d/runit/zapret/* /etc/sv/zapret/\n");
+        post_install_cmds.push_str("  chmod +x /etc/sv/zapret/run\n");
+        post_install_cmds.push_str("  ln -sf /etc/sv/zapret /var/service/zapret\n");
+        post_install_cmds.push_str("  sv up zapret\n");
+        post_install_cmds.push_str("fi\n");
+    }
+
     let wrapper_content_fixed = format!(
-        "#!/bin/sh\nexport ZAPRET_BASE=\"{}\"\n\"{}\" < \"{}\"\nexit_code=$?\nif [ $exit_code -eq 0 ]; then\nsed -i 's/^NFQWS_ENABLE=.*/NFQWS_ENABLE=1/' /opt/zapret/config\nfi\nexit $exit_code\n", 
+        "#!/bin/sh\nexport ZAPRET_BASE=\"{}\"\n\"{}\" < \"{}\"\nexit_code=$?\nif [ $exit_code -eq 0 ]; then\n{}\nfi\nexit $exit_code\n", 
         zapret_base_str, 
         install_script.to_string_lossy(), 
-        input_path.to_string_lossy()
+        input_path.to_string_lossy(),
+        post_install_cmds
     );
     if let Err(e) = fs::write(wrapper_path, wrapper_content_fixed) {
         let _ = sender.send(TestMsg::InstallFinished(Err(e)));
