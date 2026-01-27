@@ -545,33 +545,48 @@ fn build_ui(app: &Application) {
     let stop_btn_timer = stop_service_btn.clone();
     
     glib::timeout_add_local(Duration::from_secs(10), move || {
-        let output = Command::new("systemctl")
-            .arg("is-active")
-            .arg("zapret")
-            .output();
-            
-        match output {
-            Ok(o) => {
-                let status_text = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                if status_text == "active" {
-                    status_label_mgmt_timer.set_label(&t("Çalışıyor (Active)"));
-                    status_label_mgmt_timer.add_css_class("success");
-                    status_label_mgmt_timer.remove_css_class("error");
-                    start_btn_timer.set_visible(false);
-                    stop_btn_timer.set_visible(true);
-                } else {
-                    status_label_mgmt_timer.set_label(&t("Durdu ({})").replace("{}", &status_text));
-                    status_label_mgmt_timer.add_css_class("error");
-                    status_label_mgmt_timer.remove_css_class("success");
-                    start_btn_timer.set_visible(true);
-                    stop_btn_timer.set_visible(false);
-                }
-            },
-            Err(_) => {
-                status_label_mgmt_timer.set_label(&t("Servis durumu alınamadı"));
-                start_btn_timer.set_visible(true);
-                stop_btn_timer.set_visible(false);
+        let init_sys = get_init_system();
+        let mut is_active = false;
+        let mut status_text = String::from("unknown");
+
+        if init_sys == "systemd" {
+            if let Ok(o) = Command::new("systemctl").arg("is-active").arg("zapret").output() {
+                status_text = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if status_text == "active" { is_active = true; }
             }
+        } else if init_sys == "openrc" {
+            if let Ok(o) = Command::new("rc-service").arg("zapret").arg("status").output() {
+                if o.status.success() { 
+                    is_active = true; 
+                    status_text = "active".to_string();
+                } else {
+                    status_text = "stopped".to_string();
+                }
+            }
+        } else if init_sys == "runit" {
+            if let Ok(o) = Command::new("sv").arg("status").arg("zapret").output() {
+                let out = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if out.starts_with("run:") { 
+                    is_active = true; 
+                    status_text = "active".to_string();
+                } else {
+                    status_text = out;
+                }
+            }
+        }
+
+        if is_active {
+            status_label_mgmt_timer.set_label(&t("Çalışıyor (Active)"));
+            status_label_mgmt_timer.add_css_class("success");
+            status_label_mgmt_timer.remove_css_class("error");
+            start_btn_timer.set_visible(false);
+            stop_btn_timer.set_visible(true);
+        } else {
+            status_label_mgmt_timer.set_label(&t("Durdu ({})").replace("{}", &status_text));
+            status_label_mgmt_timer.add_css_class("error");
+            status_label_mgmt_timer.remove_css_class("success");
+            start_btn_timer.set_visible(true);
+            stop_btn_timer.set_visible(false);
         }
         glib::ControlFlow::Continue
     });
@@ -594,11 +609,25 @@ fn build_ui(app: &Application) {
         .build();
 
     start_service_btn.connect_clicked(move |_| {
-         let _ = Command::new("pkexec").arg("systemctl").arg("start").arg("zapret").spawn();
+         let init = get_init_system();
+         if init == "openrc" {
+             let _ = Command::new("pkexec").arg("rc-service").arg("zapret").arg("start").spawn();
+         } else if init == "runit" {
+             let _ = Command::new("pkexec").arg("sv").arg("up").arg("zapret").spawn();
+         } else {
+             let _ = Command::new("pkexec").arg("systemctl").arg("start").arg("zapret").spawn();
+         }
     });
     
     stop_service_btn.connect_clicked(move |_| {
-         let _ = Command::new("pkexec").arg("systemctl").arg("stop").arg("zapret").spawn();
+         let init = get_init_system();
+         if init == "openrc" {
+             let _ = Command::new("pkexec").arg("rc-service").arg("zapret").arg("stop").spawn();
+         } else if init == "runit" {
+             let _ = Command::new("pkexec").arg("sv").arg("down").arg("zapret").spawn();
+         } else {
+             let _ = Command::new("pkexec").arg("systemctl").arg("stop").arg("zapret").spawn();
+         }
     });
     
     let win_about = window.clone();
@@ -792,7 +821,16 @@ fn build_ui(app: &Application) {
                     return;
                 }
 
-                let cmd_script = format!("mv -f {} /opt/zapret/config && systemctl restart zapret", temp_path);
+                let init = get_init_system();
+                let restart_cmd = if init == "openrc" {
+                    "rc-service zapret restart"
+                } else if init == "runit" {
+                    "sv restart zapret"
+                } else {
+                    "systemctl restart zapret"
+                };
+
+                let cmd_script = format!("mv -f {} /opt/zapret/config && {}", temp_path, restart_cmd);
                 
                 let res = Command::new("pkexec")
                     .arg("sh")
@@ -1986,9 +2024,20 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
         {
             root_commands.push_str("echo \"STATUS:FINALIZING\"\n");
 
-            root_commands.push_str("systemctl restart NetworkManager\n");
-            root_commands.push_str("systemctl enable dnscrypt-proxy.service\n");
-            root_commands.push_str("systemctl start dnscrypt-proxy.service\n");
+            let init = get_init_system();
+            if init == "openrc" {
+                root_commands.push_str("rc-service NetworkManager restart\n");
+                root_commands.push_str("rc-update add dnscrypt-proxy default\n");
+                root_commands.push_str("rc-service dnscrypt-proxy start\n");
+            } else if init == "runit" {
+                root_commands.push_str("sv restart NetworkManager || true\n");
+                root_commands.push_str("ln -s /etc/sv/dnscrypt-proxy /var/service/ 2>/dev/null\n");
+                root_commands.push_str("sv up dnscrypt-proxy\n");
+            } else {
+                root_commands.push_str("systemctl restart NetworkManager\n");
+                root_commands.push_str("systemctl enable dnscrypt-proxy.service\n");
+                root_commands.push_str("systemctl start dnscrypt-proxy.service\n");
+            }
             
             if !needs_root_permission { needs_root_permission = true; }
         }
@@ -2208,6 +2257,29 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
             Err(mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
         }
     });
+}
+
+fn get_init_system() -> String {
+    if Path::new("/run/systemd/system").exists() {
+        return "systemd".to_string();
+    }
+    if Path::new("/run/openrc").exists() || (Path::new("/sbin/openrc-run").exists() && Path::new("/run/openrc").exists()) {
+        return "openrc".to_string();
+    }
+    if Path::new("/run/runit").exists() || Path::new("/etc/runit").exists() {
+        return "runit".to_string();
+    }
+    if Command::new("systemctl").arg("--version").output().is_ok() {
+        return "systemd".to_string();
+    }
+    if Command::new("rc-status").output().is_ok() {
+        return "openrc".to_string();
+    }
+    if Command::new("sv").output().is_ok() {
+        return "runit".to_string();
+    }
+
+    "unknown".to_string()
 }
 
 fn get_distro_id() -> String {
