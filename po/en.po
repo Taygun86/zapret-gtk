@@ -310,3 +310,6 @@ msgstr "Tried Strategies: {}"
 
 msgid "Durdu ({})"
 msgstr "Stopped ({})"
+
+msgid "UYARI: Varsayılan servis sağlayıcı DNS'i ile çalışmaz. Lütfen Cloudflare veya alternatif bir DNS kullanın."
+msgstr "WARNING: It does not work with the default service provider DNS. Please use Cloudflare or an alternative DNS."

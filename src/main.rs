@@ -133,6 +133,16 @@ fn build_ui(app: &Application) {
         .build();
     top_box1.append(&placeholder_label);
 
+    let dns_warning_label = Label::builder()
+        .label(&format!("<span foreground='red' weight='bold'>{}</span>", t("UYARI: Varsayılan servis sağlayıcı DNS'i ile çalışmaz. Lütfen Cloudflare veya alternatif bir DNS kullanın.")))
+        .use_markup(true)
+        .margin_bottom(20)
+        .wrap(true)
+        .justify(gtk::Justification::Center)
+        .visible(true)
+        .build();
+    top_box1.append(&dns_warning_label);
+
     let progress_bar = ProgressBar::builder()
         .margin_top(10)
         .margin_bottom(10)

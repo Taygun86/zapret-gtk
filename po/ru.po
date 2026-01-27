@@ -310,3 +310,6 @@ msgstr "Проверено стратегий: {}"
 
 msgid "Durdu ({})"
 msgstr "Остановлено ({})"
+
+msgid "UYARI: Varsayılan servis sağlayıcı DNS'i ile çalışmaz. Lütfen Cloudflare veya alternatif bir DNS kullanın."
+msgstr "ВНИМАНИЕ: Не работает с DNS провайдера по умолчанию. Пожалуйста, используйте Cloudflare или альтернативный DNS."
