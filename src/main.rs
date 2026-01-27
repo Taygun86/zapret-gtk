@@ -2193,7 +2193,7 @@ fn is_package_installed(distro: &str, package_name: &str) -> bool {
             "ubuntu" | "debian" | "linuxmint" | "pop" | "kali" => {
                 Command::new("dpkg").arg("-s").arg(pkg).output()
             },
-            "fedora" => {
+            "fedora" | "opensuse" | "opensuse-tumbleweed" | "opensuse-leap" | "suse" => {
                  Command::new("rpm").arg("-q").arg(pkg).output()
             },
             "alpine" => {
