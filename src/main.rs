@@ -1836,9 +1836,12 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
         
         let lib_deps = vec!["zlib", "libnetfilter_queue", "libmnl", "libcap"];
         for lib in lib_deps {
-             let install_parts = get_package_install_command(&distro_id, lib);
-             if !install_parts.is_empty() {
-                 dep_install_commands.push(install_parts.join(" "));
+             let distro_pkg = get_distro_package_name(&distro_id, lib);
+             if !is_package_installed(&distro_id, &distro_pkg) {
+                 let install_parts = get_package_install_command(&distro_id, lib);
+                 if !install_parts.is_empty() {
+                     dep_install_commands.push(install_parts.join(" "));
+                 }
              }
         }
 
@@ -2126,7 +2129,7 @@ fn get_distro_id() -> String {
     "unknown".to_string()
 }
 
-fn get_package_install_command(distro: &str, package: &str) -> Vec<String> {
+fn get_distro_package_name(distro: &str, package: &str) -> String {
     let mut p = package.to_string();
     
     if package == "gcc" {
@@ -2175,6 +2178,47 @@ fn get_package_install_command(distro: &str, package: &str) -> Vec<String> {
             _ => p = "dnsutils".to_string(),
         }
     }
+    p
+}
+
+fn is_package_installed(distro: &str, package_name: &str) -> bool {
+    let packages: Vec<&str> = package_name.split_whitespace().collect();
+    if packages.is_empty() { return true; }
+
+    for pkg in packages {
+        let status = match distro {
+            "arch" | "manjaro" | "endeavouros" | "cachyos" => {
+                Command::new("pacman").arg("-Qi").arg(pkg).output()
+            },
+            "ubuntu" | "debian" | "linuxmint" | "pop" | "kali" => {
+                Command::new("dpkg").arg("-s").arg(pkg).output()
+            },
+            "fedora" => {
+                 Command::new("rpm").arg("-q").arg(pkg).output()
+            },
+            "alpine" => {
+                Command::new("apk").arg("info").arg("-e").arg(pkg).output()
+            },
+            "void" => {
+                Command::new("xbps-query").arg("-p").arg("state").arg(pkg).output()
+            },
+             _ => return false,
+        };
+
+        match status {
+            Ok(output) => {
+                if !output.status.success() {
+                    return false;
+                }
+            },
+            Err(_) => return false,
+        }
+    }
+    true
+}
+
+fn get_package_install_command(distro: &str, package: &str) -> Vec<String> {
+    let p = get_distro_package_name(distro, package);
 
     match distro {
         "arch" | "manjaro" | "endeavouros" | "cachyos" => vec!["pacman".to_string(), "-S".to_string(), "--noconfirm".to_string(), p],
