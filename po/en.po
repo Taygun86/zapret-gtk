@@ -306,7 +306,7 @@ msgid "Hata: {}"
 msgstr "Error: {}"
 
 msgid "Denenen Stratejiler: {}"
-msgstr "Tried Strategies: {}"
+msgstr "Strategies Tried: {}"
 
 msgid "Durdu ({})"
 msgstr "Stopped ({})"

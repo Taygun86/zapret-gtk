@@ -36,7 +36,7 @@ msgid "Bu işlem internet hızınıza göre zaman alabilir.\nLütfen bekleyiniz.
 msgstr "Этот процесс может занять время в зависимости от скорости интернета.\nПожалуйста, подождите."
 
 msgid "Denenen Stratejiler: 0"
-msgstr "Опробовано стратегий: 0"
+msgstr "Проверено стратегий: 0"
 
 msgid "İptal"
 msgstr "Отмена"
