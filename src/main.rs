@@ -2029,11 +2029,14 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                 root_commands.push_str("rc-service NetworkManager restart\n");
                 root_commands.push_str("rc-update add dnscrypt-proxy default\n");
                 root_commands.push_str("rc-service dnscrypt-proxy start\n");
-            } else if init == "runit" {
+            }
+            else if init == "runit" {
                 root_commands.push_str("sv restart NetworkManager || true\n");
-                root_commands.push_str("ln -s /etc/sv/dnscrypt-proxy /var/service/ 2>/dev/null\n");
-                root_commands.push_str("sv up dnscrypt-proxy\n");
-            } else {
+                root_commands.push_str("ln -sf /etc/sv/dnscrypt-proxy /var/service/\n");
+                root_commands.push_str("sleep 5\n");
+                root_commands.push_str("sv up dnscrypt-proxy || true\n");
+            }
+            else {
                 root_commands.push_str("systemctl restart NetworkManager\n");
                 root_commands.push_str("systemctl enable dnscrypt-proxy.service\n");
                 root_commands.push_str("systemctl start dnscrypt-proxy.service\n");
