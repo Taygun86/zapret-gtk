@@ -2236,6 +2236,8 @@ fn get_distro_package_name(distro: &str, package: &str) -> String {
             "fedora" => p = "zlib-devel".to_string(),
             "alpine" => p = "zlib-dev".to_string(),
             "arch" | "manjaro" | "endeavouros" | "cachyos" => p = "zlib".to_string(),
+            "gentoo" => p = "sys-libs/zlib".to_string(),
+            "void" => p = "zlib-devel".to_string(),
             _ => p = "zlib-devel".to_string(),
         }
     } else if package == "libnetfilter_queue" {
@@ -2244,6 +2246,8 @@ fn get_distro_package_name(distro: &str, package: &str) -> String {
             "fedora" => p = "libnetfilter_queue-devel libnfnetlink-devel".to_string(),
             "alpine" => p = "libnetfilter_queue-dev libnfnetlink-dev".to_string(),
             "arch" | "manjaro" | "endeavouros" | "cachyos" => p = "libnetfilter_queue libnfnetlink".to_string(),
+            "gentoo" => p = "net-libs/libnetfilter_queue net-libs/libnfnetlink".to_string(),
+            "void" => p = "libnetfilter_queue-devel libnfnetlink-devel".to_string(),
             _ => p = "libnetfilter_queue-devel".to_string(),
         }
     } else if package == "libmnl" {
@@ -2252,6 +2256,8 @@ fn get_distro_package_name(distro: &str, package: &str) -> String {
             "fedora" => p = "libmnl-devel".to_string(),
             "alpine" => p = "libmnl-dev".to_string(),
             "arch" | "manjaro" | "endeavouros" | "cachyos" => p = "libmnl".to_string(),
+            "gentoo" => p = "net-libs/libmnl".to_string(),
+            "void" => p = "libmnl-devel".to_string(),
             _ => p = "libmnl-devel".to_string(),
         }
     } else if package == "libcap" {
@@ -2260,6 +2266,8 @@ fn get_distro_package_name(distro: &str, package: &str) -> String {
             "fedora" => p = "libcap-devel".to_string(),
             "alpine" => p = "libcap-dev".to_string(),
             "arch" | "manjaro" | "endeavouros" | "cachyos" => p = "libcap".to_string(),
+            "gentoo" => p = "sys-libs/libcap".to_string(),
+            "void" => p = "libcap-devel".to_string(),
             _ => p = "libcap-devel".to_string(),
         }
     } else if package == "dig" {
@@ -2267,6 +2275,7 @@ fn get_distro_package_name(distro: &str, package: &str) -> String {
             "void" | "fedora" => p = "bind-utils".to_string(),
             "alpine" => p = "bind-tools".to_string(),
             "arch" | "manjaro" | "endeavouros" | "cachyos" => p = "bind".to_string(),
+            "gentoo" => p = "net-dns/bind-tools".to_string(),
             _ => p = "dnsutils".to_string(),
         }
     }
@@ -2293,6 +2302,9 @@ fn is_package_installed(distro: &str, package_name: &str) -> bool {
             },
             "void" => {
                 Command::new("xbps-query").arg("-p").arg("state").arg(pkg).output()
+            },
+            "gentoo" => {
+                Command::new("qlist").arg("-I").arg(pkg).output()
             },
              _ => return false,
         };
