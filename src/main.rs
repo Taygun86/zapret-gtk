@@ -1993,7 +1993,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
             root_commands.push_str("echo \"STATUS:INSTALLING_DEPS\"\n");
             
             match distro_id.as_str() {
-                "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "mx" | "neon" | "kubuntu" | "xubuntu" | "lubuntu" | "ubuntu-budgie" | "ubuntukylin" | "ubuntu-mate" | "ubuntucinnamon" | "ubuntu-unity" | "ubuntustudio" => {
+                "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "mx" | "neon" | "kubuntu" | "xubuntu" | "lubuntu" | "ubuntu-budgie" | "ubuntukylin" | "ubuntu-mate" | "ubuntucinnamon" | "ubuntu-unity" | "ubuntustudio" | "deepin" | "antix" => {
                     root_commands.push_str("apt-get update\n");
                 },
                 "arch" | "manjaro" | "endeavouros" | "cachyos" | "artix" | "garuda" | "omarchy" => {
@@ -2315,13 +2315,13 @@ fn get_distro_package_name(distro: &str, package: &str) -> String {
     
     if package == "gcc" {
         match distro {
-            "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "mx" | "neon" | "kubuntu" | "xubuntu" | "lubuntu" | "ubuntu-budgie" | "ubuntukylin" | "ubuntu-mate" | "ubuntucinnamon" | "ubuntu-unity" | "ubuntustudio" => p = "build-essential".to_string(),
+            "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "mx" | "neon" | "kubuntu" | "xubuntu" | "lubuntu" | "ubuntu-budgie" | "ubuntukylin" | "ubuntu-mate" | "ubuntucinnamon" | "ubuntu-unity" | "ubuntustudio" | "deepin" | "antix" => p = "build-essential".to_string(),
             "alpine" => p = "build-base".to_string(),
             _ => p = "gcc".to_string(),
         }
     } else if package == "zlib" {
         match distro {
-            "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "mx" | "neon" | "kubuntu" | "xubuntu" | "lubuntu" | "ubuntu-budgie" | "ubuntukylin" | "ubuntu-mate" | "ubuntucinnamon" | "ubuntu-unity" | "ubuntustudio" => p = "zlib1g-dev".to_string(),
+            "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "mx" | "neon" | "kubuntu" | "xubuntu" | "lubuntu" | "ubuntu-budgie" | "ubuntukylin" | "ubuntu-mate" | "ubuntucinnamon" | "ubuntu-unity" | "ubuntustudio" | "deepin" | "antix" => p = "zlib1g-dev".to_string(),
             "fedora" | "nobara" => p = "zlib-devel".to_string(),
             "alpine" => p = "zlib-dev".to_string(),
             "arch" | "manjaro" | "endeavouros" | "cachyos" | "artix" | "garuda" | "omarchy" => p = "zlib".to_string(),
@@ -2331,7 +2331,7 @@ fn get_distro_package_name(distro: &str, package: &str) -> String {
         }
     } else if package == "libnetfilter_queue" {
         match distro {
-            "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "mx" | "neon" | "kubuntu" | "xubuntu" | "lubuntu" | "ubuntu-budgie" | "ubuntukylin" | "ubuntu-mate" | "ubuntucinnamon" | "ubuntu-unity" | "ubuntustudio" => p = "libnetfilter-queue-dev libnfnetlink-dev".to_string(),
+            "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "mx" | "neon" | "kubuntu" | "xubuntu" | "lubuntu" | "ubuntu-budgie" | "ubuntukylin" | "ubuntu-mate" | "ubuntucinnamon" | "ubuntu-unity" | "ubuntustudio" | "deepin" | "antix" => p = "libnetfilter-queue-dev libnfnetlink-dev".to_string(),
             "fedora" | "nobara" => p = "libnetfilter_queue-devel libnfnetlink-devel".to_string(),
             "alpine" => p = "libnetfilter_queue-dev libnfnetlink-dev".to_string(),
             "arch" | "manjaro" | "endeavouros" | "cachyos" | "artix" | "garuda" | "omarchy" => p = "libnetfilter_queue libnfnetlink".to_string(),
@@ -2341,7 +2341,7 @@ fn get_distro_package_name(distro: &str, package: &str) -> String {
         }
     } else if package == "libmnl" {
         match distro {
-            "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "mx" | "neon" | "kubuntu" | "xubuntu" | "lubuntu" | "ubuntu-budgie" | "ubuntukylin" | "ubuntu-mate" | "ubuntucinnamon" | "ubuntu-unity" | "ubuntustudio" => p = "libmnl-dev".to_string(),
+            "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "mx" | "neon" | "kubuntu" | "xubuntu" | "lubuntu" | "ubuntu-budgie" | "ubuntukylin" | "ubuntu-mate" | "ubuntucinnamon" | "ubuntu-unity" | "ubuntustudio" | "deepin" | "antix" => p = "libmnl-dev".to_string(),
             "fedora" | "nobara" => p = "libmnl-devel".to_string(),
             "alpine" => p = "libmnl-dev".to_string(),
             "arch" | "manjaro" | "endeavouros" | "cachyos" | "artix" | "garuda" | "omarchy" => p = "libmnl".to_string(),
@@ -2351,7 +2351,7 @@ fn get_distro_package_name(distro: &str, package: &str) -> String {
         }
     } else if package == "libcap" {
         match distro {
-            "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "mx" | "neon" | "kubuntu" | "xubuntu" | "lubuntu" | "ubuntu-budgie" | "ubuntukylin" | "ubuntu-mate" | "ubuntucinnamon" | "ubuntu-unity" | "ubuntustudio" => p = "libcap-dev".to_string(),
+            "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "mx" | "neon" | "kubuntu" | "xubuntu" | "lubuntu" | "ubuntu-budgie" | "ubuntukylin" | "ubuntu-mate" | "ubuntucinnamon" | "ubuntu-unity" | "ubuntustudio" | "deepin" | "antix" => p = "libcap-dev".to_string(),
             "fedora" | "nobara" => p = "libcap-devel".to_string(),
             "alpine" => p = "libcap-dev".to_string(),
             "arch" | "manjaro" | "endeavouros" | "cachyos" | "artix" | "garuda" | "omarchy" => p = "libcap".to_string(),
@@ -2380,7 +2380,7 @@ fn is_package_installed(distro: &str, package_name: &str) -> bool {
             "arch" | "manjaro" | "endeavouros" | "cachyos" | "artix" | "garuda" | "omarchy" => {
                 Command::new("pacman").arg("-Qi").arg(pkg).output()
             },
-            "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "mx" | "neon" | "kubuntu" | "xubuntu" | "lubuntu" | "ubuntu-budgie" | "ubuntukylin" | "ubuntu-mate" | "ubuntucinnamon" | "ubuntu-unity" | "ubuntustudio" => {
+            "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "mx" | "neon" | "kubuntu" | "xubuntu" | "lubuntu" | "ubuntu-budgie" | "ubuntukylin" | "ubuntu-mate" | "ubuntucinnamon" | "ubuntu-unity" | "ubuntustudio" | "deepin" | "antix" => {
                 Command::new("dpkg").arg("-s").arg(pkg).output()
             },
             "fedora" | "nobara" | "opensuse" | "opensuse-tumbleweed" | "opensuse-leap" | "suse" => {
@@ -2420,7 +2420,7 @@ fn get_package_install_command(distro: &str, package: &str) -> Vec<String> {
         "alpine" => vec!["apk".to_string(), "add".to_string(), p],
         "void" => vec!["xbps-install".to_string(), "-S".to_string(), "-y".to_string(), p],
         "gentoo" => vec!["emerge".to_string(), p],
-        "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "mx" | "neon" | "kubuntu" | "xubuntu" | "lubuntu" | "ubuntu-budgie" | "ubuntukylin" | "ubuntu-mate" | "ubuntucinnamon" | "ubuntu-unity" | "ubuntustudio" => vec!["apt-get".to_string(), "install".to_string(), "-y".to_string(), p],
+        "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "mx" | "neon" | "kubuntu" | "xubuntu" | "lubuntu" | "ubuntu-budgie" | "ubuntukylin" | "ubuntu-mate" | "ubuntucinnamon" | "ubuntu-unity" | "ubuntustudio" | "deepin" | "antix" => vec!["apt-get".to_string(), "install".to_string(), "-y".to_string(), p],
         _ => vec![],
     }
 }
