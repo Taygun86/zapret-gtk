@@ -16,7 +16,7 @@
 
 ### Installation
 
-#### Debian / Ubuntu / Linux Mint
+#### Debian / Ubuntu
 Add the repository and install the package:
 ```bash
 echo "deb [trusted=yes] https://taygun86.github.io/taygun86-repo/deb ./" | sudo tee /etc/apt/sources.list.d/taygun86.list
@@ -24,7 +24,7 @@ sudo apt update
 sudo apt install zapret-gtk
 ```
 
-#### Fedora / OpenSUSE / RHEL
+#### Fedora / RHEL
 Add the repository and install the package:
 ```bash
 sudo tee /etc/yum.repos.d/taygun86.repo <<EOF
