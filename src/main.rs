@@ -17,6 +17,7 @@ use std::io::{self, Write, BufRead, BufReader};
 use std::env;
 use std::rc::Rc;
 use std::cell::Cell;
+use directories::ProjectDirs;
 
 use gtk::gdk;
 
@@ -40,6 +41,19 @@ fn t(s: &str) -> String {
         }
     }
     s.to_string()
+}
+
+fn get_config_path() -> PathBuf {
+    if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
+        let config_dir = proj_dirs.config_dir();
+        if !config_dir.exists() {
+            let _ = fs::create_dir_all(config_dir);
+        }
+        config_dir.join("strategies.json")
+    } else {
+        // Fallback to current directory if home/config can't be found
+        PathBuf::from("strategies.json")
+    }
 }
 
 fn init_i18n() {
@@ -696,7 +710,7 @@ fn build_ui(app: &Application) {
 
     let win_export = window.clone();
     export_button.connect_clicked(move |_| {
-        if !Path::new("strategies.json").exists() {
+        if !get_config_path().exists() {
              let dialog = adw::MessageDialog::builder()
                 .transient_for(&win_export)
                 .heading(&t("Hata"))
@@ -719,7 +733,7 @@ fn build_ui(app: &Application) {
         file_dialog.save(Some(&win_export), None::<&gtk::gio::Cancellable>, move |result| {
              if let Ok(file) = result {
                 if let Some(path) = file.path() {
-                    match fs::copy("strategies.json", &path) {
+                    match fs::copy(get_config_path(), &path) {
                         Ok(_) => {
                              let dialog = adw::MessageDialog::builder()
                                 .transient_for(&win_export_c)
@@ -881,10 +895,10 @@ fn build_ui(app: &Application) {
         }
     });
 
-    if Path::new("/opt/zapret").exists() && Path::new("strategies.json").exists() {
+    if Path::new("/opt/zapret").exists() && get_config_path().exists() {
         delete_local_zapret_folder();
 
-         if let Ok(content) = fs::read_to_string("strategies.json") {
+         if let Ok(content) = fs::read_to_string(get_config_path()) {
              let config_content = fs::read_to_string("/opt/zapret/config")
                  .unwrap_or_else(|_| "".to_string());
              
@@ -1193,7 +1207,7 @@ fn build_ui(app: &Application) {
                                                             child = next;
                                                         }
 
-                                                        if let Ok(content) = fs::read_to_string("strategies.json") {
+                                                        if let Ok(content) = fs::read_to_string(get_config_path()) {
                                                             let trimmed = content.trim();
                                                             if trimmed.starts_with('[') {
                                                                 let inner = &trimmed[1..trimmed.len()-1];
@@ -1451,7 +1465,7 @@ fn build_ui(app: &Application) {
                                             child = next;
                                         }
 
-                                        if let Ok(content) = fs::read_to_string("strategies.json") {
+                                        if let Ok(content) = fs::read_to_string(get_config_path()) {
                                             let trimmed = content.trim();
                                             if trimmed.starts_with('[') {
                                                 let inner = &trimmed[1..trimmed.len()-1];
@@ -1569,7 +1583,7 @@ fn validate_and_copy_strategies(path: &Path) -> io::Result<()> {
         }
     }
 
-    let dest = Path::new("strategies.json");
+    let dest = get_config_path();
     fs::write(dest, content)?;
     Ok(())
 }
@@ -1855,7 +1869,7 @@ fn run_easy_install_script(sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<Atomi
 }
 
 fn save_strategies_to_json(strategies: &Vec<String>) -> io::Result<()> {
-    let mut file = fs::File::create("strategies.json")?;
+    let mut file = fs::File::create(get_config_path())?;
     writeln!(file, "[")?;
     for (i, s) in strategies.iter().enumerate() {
         let escaped = s.replace("\"", "\\\"");
