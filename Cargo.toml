@@ -2,6 +2,8 @@
 name = "zapret-gtk"
 version = "0.3.0"
 edition = "2021"
+description = "A GUI client for Zapret DPI Bypass"
+license = "GPL-3.0"
 
 [dependencies]
 libadwaita = { version = "0.7", features = ["v1_5"] }
@@ -12,3 +14,27 @@ lazy_static = "1.5.0"
 
 [build-dependencies]
 glib-build-tools = "0.21.0"
+
+[package.metadata.deb]
+maintainer = "Taygun86"
+copyright = "2026, Taygun86"
+license-file = ["LICENSE.md", "0"]
+depends = "libgtk-4-1, libadwaita-1-0, libc6, iptables, ipset, curl, git, procps, policykit-1"
+extended-description = """
+A GUI client for Zapret.
+Manage DPI bypass strategies easily.
+"""
+section = "utils"
+priority = "optional"
+assets = [
+    ["target/release/zapret-gtk", "usr/bin/", "755"],
+    ["zapretgtk512.png", "usr/share/icons/hicolor/512x512/apps/zapret-gtk.png", "644"],
+    ["zapret-gtk.desktop", "usr/share/applications/zapret-gtk.desktop", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/zapret-gtk", dest = "/usr/bin/zapret-gtk", mode = "755" },
+    { source = "zapretgtk512.png", dest = "/usr/share/icons/hicolor/512x512/apps/zapret-gtk.png", mode = "644" },
+    { source = "zapret-gtk.desktop", dest = "/usr/share/applications/zapret-gtk.desktop", mode = "644" }
+]

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Zapret GTK
+Comment=GUI for Zapret DPI Bypass
+Exec=zapret-gtk
+Icon=zapret-gtk
+Terminal=false
+Type=Application
+Categories=Utility;Network;
+Keywords=zapret;dpi;bypass;vpn;

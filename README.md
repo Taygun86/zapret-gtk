@@ -14,7 +14,31 @@
 *   **Service Control:** Start, stop, and monitor the `zapret` system service.
 *   **Portable:** Single binary with no external resource dependencies.
 
-### Build & Run
+### Installation
+
+#### Debian / Ubuntu / Linux Mint
+Add the repository and install the package:
+```bash
+echo "deb [trusted=yes] https://taygun86.github.io/taygun86-repo/deb ./" | sudo tee /etc/apt/sources.list.d/taygun86.list
+sudo apt update
+sudo apt install zapret-gtk
+```
+
+#### Fedora / OpenSUSE / RHEL
+Add the repository and install the package:
+```bash
+sudo tee /etc/yum.repos.d/taygun86.repo <<EOF
+[taygun86]
+name=Taygun86 Repository
+baseurl=https://taygun86.github.io/taygun86-repo/rpm
+enabled=1
+gpgcheck=0
+EOF
+
+sudo dnf install zapret-gtk
+```
+
+### Build & Run (Manual)
 Requirements: `libgtk-4`, `libadwaita-1`.
 
 ```bash
@@ -37,7 +61,31 @@ cargo build --release
 *   **Servis Kontrolü:** Zapret servisini başlatın, durdurun ve durumunu görün.
 *   **Taşınabilir:** Tek bir dosya halinde çalışır, ek kurulum gerektirmez.
 
-### Derleme ve Çalıştırma
+### Kurulum
+
+#### Debian / Ubuntu / Linux Mint
+Depoyu ekleyin ve paketi yükleyin:
+```bash
+echo "deb [trusted=yes] https://taygun86.github.io/taygun86-repo/deb ./" | sudo tee /etc/apt/sources.list.d/taygun86.list
+sudo apt update
+sudo apt install zapret-gtk
+```
+
+#### Fedora / OpenSUSE / RHEL
+Depoyu ekleyin ve paketi yükleyin:
+```bash
+sudo tee /etc/yum.repos.d/taygun86.repo <<EOF
+[taygun86]
+name=Taygun86 Repository
+baseurl=https://taygun86.github.io/taygun86-repo/rpm
+enabled=1
+gpgcheck=0
+EOF
+
+sudo dnf install zapret-gtk
+```
+
+### Derleme ve Çalıştırma (Manuel)
 Gereksinimler: `libgtk-4`, `libadwaita-1`.
 
 ```bash
@@ -60,7 +108,31 @@ cargo build --release
 *   **Управление службой:** Запуск, остановка и мониторинг системной службы `zapret`.
 *   **Портативность:** Один бинарный файл, не требующий внешних ресурсов.
 
-### Сборка и Запуск
+### Установка
+
+#### Debian / Ubuntu / Linux Mint
+Добавить репозиторий и установить пакет:
+```bash
+echo "deb [trusted=yes] https://taygun86.github.io/taygun86-repo/deb ./" | sudo tee /etc/apt/sources.list.d/taygun86.list
+sudo apt update
+sudo apt install zapret-gtk
+```
+
+#### Fedora / OpenSUSE / RHEL
+Добавить репозиторий и установить пакет:
+```bash
+sudo tee /etc/yum.repos.d/taygun86.repo <<EOF
+[taygun86]
+name=Taygun86 Repository
+baseurl=https://taygun86.github.io/taygun86-repo/rpm
+enabled=1
+gpgcheck=0
+EOF
+
+sudo dnf install zapret-gtk
+```
+
+### Сборка и Запуск (Вручную)
 Требования: `libgtk-4`, `libadwaita-1`.
 
 ```bash
