@@ -38,6 +38,12 @@ EOF
 sudo dnf install zapret-gtk
 ```
 
+#### Arch Linux / Manjaro / CachyOS / EndeavourOS
+Install from AUR:
+```bash
+yay -S zapret-gtk
+```
+
 ### Build & Run (Manual)
 Requirements: `libgtk-4`, `libadwaita-1`.
 
@@ -85,6 +91,12 @@ EOF
 sudo dnf install zapret-gtk
 ```
 
+#### Arch Linux / Manjaro / CachyOS / EndeavourOS
+AUR üzerinden kurun:
+```bash
+yay -S zapret-gtk
+```
+
 ### Derleme ve Çalıştırma (Manuel)
 Gereksinimler: `libgtk-4`, `libadwaita-1`.
 
@@ -130,6 +142,12 @@ gpgcheck=0
 EOF
 
 sudo dnf install zapret-gtk
+```
+
+#### Arch Linux / Manjaro / CachyOS / EndeavourOS
+Установка из AUR:
+```bash
+yay -S zapret-gtk
 ```
 
 ### Сборка и Запуск (Вручную)
