@@ -1,13 +1,5 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: zapret-gtk\n"
-"Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-01-24 12:00+0000\n"
-"PO-Revision-Date: 2024-01-24 12:00+0000\n"
-"Last-Translator: \n"
-"Language-Team: \n"
-"Language: ru\n"
-"MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
@@ -251,9 +243,6 @@ msgstr "Не удалось запустить pkexec"
 msgid "Servis başlatılamadı:\n{}"
 msgstr "Не удалось запустить службу:\n{}"
 
-msgid "Servis durumu alınamadı"
-msgstr "Не удалось получить состояние службы"
-
 msgid "Sil ve İndir"
 msgstr "Удалить и скачать"
 
@@ -284,17 +273,14 @@ msgstr "Попробовать снова"
 msgid "Uyarı"
 msgstr "Предупреждение"
 
-msgid "Uygula ve Servisi Başlat"
-msgstr "Применить и запустить службу"
-
-msgid "Vazgeç"
-msgstr "Отмена"
+msgid "Uygula"
+msgstr "Применить"
 
 msgid "Veri girin..."
 msgstr "Введите данные..."
 
-msgid "Zapret Durumu"
-msgstr "Статус Zapret"
+msgid "Ayarlar"
+msgstr "Настройки"
 
 msgid "Zapret Kuruluyor (/opt/zapret)..."
 msgstr "Установка Zapret (/opt/zapret)..."
@@ -313,3 +299,10 @@ msgstr "Остановлено ({})"
 
 msgid "UYARI: Varsayılan servis sağlayıcı DNS'i ile çalışmaz. Lütfen Cloudflare veya alternatif bir DNS kullanın."
 msgstr "ВНИМАНИЕ: Не работает с DNS провайдера по умолчанию. Пожалуйста, используйте Cloudflare или альтернативный DNS."
+
+msgid "Stratejiler içe aktarıldı."
+msgstr "Стратегии импортированы."
+
+msgid "Zapret Durumu"
+msgstr "Статус Zapret"
+
