@@ -316,9 +316,15 @@ fn build_ui(app: &Application) {
     action_buttons_box.set_halign(gtk::Align::Center);
     action_buttons_box.set_margin_top(10);
     action_buttons_box.set_margin_bottom(10);
+    let import_btn_content = Box::new(Orientation::Horizontal, 10);
+    import_btn_content.set_halign(gtk::Align::Center);
+    let import_icon = gtk::Image::from_icon_name("document-open-symbolic");
+    let import_lbl = Label::new(Some(&t("İçe Aktar")));
+    import_btn_content.append(&import_icon);
+    import_btn_content.append(&import_lbl);
+
     let import_button = Button::builder()
-        .icon_name("document-open-symbolic")
-        .label(&t("İçe Aktar"))
+        .child(&import_btn_content)
         .css_classes(vec!["pill"])
         .build();
     action_buttons_box.append(&import_button);
@@ -358,7 +364,7 @@ fn build_ui(app: &Application) {
         .build();
     top_box_mgmt.append(&mgmt_title);
     let mgmt_desc = Label::builder()
-        .label(&t("Aşağıda blockcheck testi sonucunda bulunan çalışan stratejiler listelenmiştir.\nKullanmak istediklerinizi seçip servisi yeniden başlatın."))
+        .label(&t("Aşağıda Blockcheck testi sonucunda bulunan çalışan stratejiler listelenmiştir.\n Kullanmak istediklerinizi seçin ve 'Uygula' butonuna tıklayın."))
         .wrap(true)
         .max_width_chars(40)
         .halign(gtk::Align::Start)
@@ -466,6 +472,7 @@ fn build_ui(app: &Application) {
     let buttons_row = Box::new(Orientation::Horizontal, 20);
     buttons_row.set_halign(gtk::Align::Center);
     let import_btn_content = Box::new(Orientation::Horizontal, 10);
+    import_btn_content.set_halign(gtk::Align::Center);
     let import_icon = gtk::Image::from_icon_name("document-open-symbolic");
     let import_lbl = Label::new(Some(&t("İçe Aktar")));
     import_btn_content.append(&import_icon);
@@ -473,9 +480,11 @@ fn build_ui(app: &Application) {
     let import_button_status = Button::builder()
         .child(&import_btn_content)
         .css_classes(vec!["pill"])
+        .width_request(190)
         .build();
     buttons_row.append(&import_button_status);
     let export_btn_content = Box::new(Orientation::Horizontal, 10);
+    export_btn_content.set_halign(gtk::Align::Center);
     let export_icon = gtk::Image::from_icon_name("document-save-symbolic");
     let export_lbl = Label::new(Some(&t("Dışa Aktar")));
     export_btn_content.append(&export_icon);
@@ -483,10 +492,100 @@ fn build_ui(app: &Application) {
     let export_button = Button::builder()
         .child(&export_btn_content)
         .css_classes(vec!["pill"])
+        .width_request(190)
         .build();
     buttons_row.append(&export_button);
     export_box.append(&buttons_row);
+
+    let folder_buttons_row = Box::new(Orientation::Horizontal, 20);
+    folder_buttons_row.set_halign(gtk::Align::Center);
+    folder_buttons_row.set_margin_top(10);
+
+    let opt_btn_content = Box::new(Orientation::Horizontal, 10);
+    opt_btn_content.set_halign(gtk::Align::Center);
+    let opt_icon = gtk::Image::from_icon_name("folder-symbolic");
+    let opt_lbl = Label::new(Some("opt"));
+    opt_btn_content.append(&opt_icon);
+    opt_btn_content.append(&opt_lbl);
+    let opt_button = Button::builder()
+        .child(&opt_btn_content)
+        .css_classes(vec!["pill"])
+        .width_request(120)
+        .build();
+    opt_button.connect_clicked(move |_| {
+        let _ = Command::new("xdg-open")
+            .arg("/opt/zapret")
+            .spawn();
+    });
+    folder_buttons_row.append(&opt_button);
+
+    let config_btn_content = Box::new(Orientation::Horizontal, 10);
+    config_btn_content.set_halign(gtk::Align::Center);
+    let config_icon = gtk::Image::from_icon_name("folder-symbolic");
+    let config_lbl = Label::new(Some(".config"));
+    config_btn_content.append(&config_icon);
+    config_btn_content.append(&config_lbl);
+    let config_button = Button::builder()
+        .child(&config_btn_content)
+        .css_classes(vec!["pill"])
+        .width_request(120)
+        .build();
+    config_button.connect_clicked(move |_| {
+        if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
+            let config_dir = proj_dirs.config_dir();
+            if !config_dir.exists() {
+                let _ = fs::create_dir_all(config_dir);
+            }
+            let _ = Command::new("xdg-open")
+                .arg(config_dir)
+                .spawn();
+        }
+    });
+    folder_buttons_row.append(&config_button);
+
+    let json_btn_content = Box::new(Orientation::Horizontal, 10);
+    json_btn_content.set_halign(gtk::Align::Center);
+    let json_icon = gtk::Image::from_icon_name("text-x-generic-symbolic");
+    let json_lbl = Label::new(Some("json"));
+    json_btn_content.append(&json_icon);
+    json_btn_content.append(&json_lbl);
+    let json_button = Button::builder()
+        .child(&json_btn_content)
+        .css_classes(vec!["pill"])
+        .width_request(120)
+        .build();
+    json_button.connect_clicked(move |_| {
+        if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
+            let config_dir = proj_dirs.config_dir();
+            if !config_dir.exists() {
+               let _ = fs::create_dir_all(&config_dir);
+            }
+            let json_path = config_dir.join("strategies.json");
+            let _ = Command::new("xdg-open")
+                .arg(json_path)
+                .spawn();
+        }
+    });
+    folder_buttons_row.append(&json_button);
+    export_box.append(&folder_buttons_row);
+
     content_box_status.append(&export_box);
+
+    let delete_box = Box::new(Orientation::Vertical, 10);
+    delete_box.set_margin_top(20);
+    delete_box.set_margin_bottom(20);
+    delete_box.set_halign(gtk::Align::Center);
+    
+    let delete_btn = Button::builder()
+        .label(&t("Zapret'i Sil"))
+        .css_classes(vec!["destructive-action", "pill"])
+        .build();
+    delete_box.append(&delete_btn);
+    content_box_status.append(&delete_box);
+    
+
+
+
     let status_label_mgmt_timer = status_label_mgmt.clone();
     let start_btn_timer = start_service_btn.clone();
     let stop_btn_timer = stop_service_btn.clone();
@@ -630,6 +729,76 @@ fn build_ui(app: &Application) {
     let list_box_mgmt = strategies_list_box.clone();
     let win_import_status = window.clone();
     let strategies_list_box_status = strategies_list_box.clone();
+    
+    let win_delete = window.clone();
+    let nav_delete = nav_view.clone();
+    let page1_delete = page1.clone();
+    
+    delete_btn.connect_clicked(move |_| {
+         let dialog = adw::MessageDialog::builder()
+            .transient_for(&win_delete)
+            .heading(&t("Uyarı"))
+            .body(&t("Zapret'i silmek istediğinize emin misiniz?\nBulunan stratejiler dahil Zapret silinecek (Dışa aktarmayı unutmayın!)."))
+            .build();
+        dialog.add_response("cancel", &t("İptal"));
+        dialog.add_response("delete", &t("Zapret'i Sil"));
+        dialog.set_response_appearance("delete", ResponseAppearance::Destructive);
+        
+        let nav = nav_delete.clone();
+        let p1 = page1_delete.clone();
+        let win_err = win_delete.clone();
+        
+        dialog.connect_response(None, move |d, response| {
+            if response == "delete" {
+                 let init = get_init_system();
+                 let mut cmd = String::new();
+                 
+                 cmd.push_str("if [ -f /opt/zapret/uninstall_easy.sh ]; then sh /opt/zapret/uninstall_easy.sh; fi; ");
+                 
+                 cmd.push_str("rm -rf /opt/zapret; ");
+                 
+                 if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
+                      let cfg_path = proj_dirs.config_dir().to_string_lossy();
+                      cmd.push_str(&format!("rm -rf \"{}\"; ", cfg_path));
+                 }
+                 
+                 if init == "runit" {
+                     cmd.push_str("sv down zapret; rm /var/service/zapret; rm -rf /etc/sv/zapret; ");
+                 } else if init == "systemd" {
+                     cmd.push_str("systemctl stop zapret; systemctl disable zapret; ");
+                 } else if init == "openrc" {
+                     cmd.push_str("rc-service zapret stop; rc-update del zapret; ");
+                 }
+                 
+                 let res = Command::new("pkexec")
+                    .arg("sh")
+                    .arg("-c")
+                    .arg(&cmd)
+                    .output();
+                    
+                 match res {
+                    Ok(_) => {
+                        d.close();
+                        nav.replace(&[p1.clone()]);
+                    },
+                    Err(e) => {
+                         d.close();
+                         let err_dialog = adw::MessageDialog::builder()
+                            .transient_for(&win_err)
+                            .heading(&t("Hata"))
+                            .body(&t("Silme işlemi başarısız: {}").replace("{}", &e.to_string()))
+                            .build();
+                        err_dialog.add_response("ok", &t("Tamam"));
+                        err_dialog.present();
+                    }
+                 }
+            } else {
+                d.close();
+            }
+        });
+        dialog.present();
+    });
+
     import_button_status.connect_clicked(move |_| {
         let file_dialog = gtk::FileDialog::builder()
             .title(&t("Strateji Dosyası Seç"))

@@ -120,8 +120,8 @@ msgstr "Git clone error."
 msgid "Mevcut zapret klasörü kullanılıyor."
 msgstr "Using existing zapret folder."
 
-msgid "Aşağıda blockcheck testi sonucunda bulunan çalışan stratejiler listelenmiştir.\nKullanmak istediklerinizi seçip servisi yeniden başlatın."
-msgstr "Below are the working strategies found as a result of the blockcheck test.\nSelect the ones you want to use and restart the service."
+msgid "Aşağıda Blockcheck testi sonucunda bulunan çalışan stratejiler listelenmiştir.\n Kullanmak istediklerinizi seçin ve 'Uygula' butonuna tıklayın."
+msgstr "The working strategies found as a result of the Blockcheck test are listed below.\n Select the ones you want to use and click the 'Apply' button."
 
 msgid "Başarılı"
 msgstr "Success"
@@ -306,3 +306,11 @@ msgstr "Strategies imported."
 msgid "Zapret Durumu"
 msgstr "Zapret Status"
 
+msgid "Zapret'i Sil"
+msgstr "Delete Zapret"
+
+msgid "Zapret'i silmek istediğinize emin misiniz?\nBulunan stratejiler dahil Zapret silinecek (Dışa aktarmayı unutmayın!)."
+msgstr "Are you sure you want to delete Zapret?\nZapret, including found strategies, will be deleted (Do not forget to export!)."
+
+msgid "Silme işlemi başarısız: {}"
+msgstr "Deletion failed: {}"
