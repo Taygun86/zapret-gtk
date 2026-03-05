@@ -314,3 +314,9 @@ msgstr "Вы уверены, что хотите удалить Zapret?\nZapret,
 
 msgid "Silme işlemi başarısız: {}"
 msgstr "Удаление не удалось: {}"
+
+msgid "Strateji Bulunamadı"
+msgstr "Стратегия не найдена"
+
+msgid "Blockcheck tamamlandı ancak çalışan bir strateji bulunamadı."
+msgstr "Blockcheck завершен, но рабочая стратегия не найдена."

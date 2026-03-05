@@ -46,6 +46,38 @@ fn get_config_path() -> PathBuf {
         PathBuf::from("strategies.json")
     }
 }
+
+fn get_log_path() -> PathBuf {
+    if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
+        let config_dir = proj_dirs.config_dir();
+        if !config_dir.exists() {
+            let _ = fs::create_dir_all(config_dir);
+        }
+        config_dir.join("log.txt")
+    } else {
+        PathBuf::from("log.txt")
+    }
+}
+
+fn rotate_logs() {
+    let path = get_log_path();
+    if path.exists() {
+        let old_path = path.with_file_name("log-old.txt");
+        let _ = fs::rename(&path, &old_path);
+    }
+}
+
+fn log_to_file(msg: &str) {
+    let path = get_log_path();
+
+    let now = glib::DateTime::now_local().unwrap_or_else(|_| glib::DateTime::now_utc().unwrap());
+    let timestamp = now.format("%Y-%m-%d %H:%M:%S").unwrap();
+    
+    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "[{}] {}", timestamp, msg);
+    }
+}
+
 fn init_i18n() {
     let locale = get_locale().unwrap_or_else(|| String::from("en-US"));
     let simple_locale = locale.split(|c| c == '-' || c == '_').next().unwrap_or("en");
@@ -75,7 +107,9 @@ enum TestMsg {
     InstallFinished(io::Result<()>),
 }
 fn main() {
+    rotate_logs();
     init_i18n();
+    log_to_file("Application started (v0.4.0)");
     let app = Application::builder()
         .application_id("com.ornek.zapret-gtk")
         .build();
@@ -92,6 +126,7 @@ fn delete_local_zapret_folder() {
         let local_zapret = get_zapret_path();
         if local_zapret.exists() {
             println!("Yerel zapret klasörü siliniyor: {:?}", local_zapret);
+            log_to_file(&format!("Deleting local zapret folder: {:?}", local_zapret));
             if let Err(_) = fs::remove_dir_all(&local_zapret) {
                  let _ = Command::new("pkexec")
                     .arg("rm")
@@ -750,6 +785,7 @@ fn build_ui(app: &Application) {
         
         dialog.connect_response(None, move |d, response| {
             if response == "delete" {
+                 log_to_file("User initiated Zapret deletion.");
                  let init = get_init_system();
                  let mut cmd = String::new();
                  
@@ -990,6 +1026,7 @@ fn build_ui(app: &Application) {
         }
         let combined_strategies = selected_strategies.join(" ");
         println!("Uygulanacak: {}", combined_strategies);
+        log_to_file(&format!("Applying strategies: {}", combined_strategies));
         let config_path = Path::new("/opt/zapret/config");
         let content_res = fs::read_to_string(config_path).or_else(|_| {
              let out = Command::new("pkexec").arg("cat").arg("/opt/zapret/config").output();
@@ -1028,6 +1065,7 @@ fn build_ui(app: &Application) {
                     .output();
                 match res {
                     Ok(output) if output.status.success() => {
+                        log_to_file("Config file updated successfully and service restarted.");
                         let dialog = adw::MessageDialog::builder()
                             .transient_for(&win_apply)
                             .heading(&t("Başarılı"))
@@ -1038,6 +1076,7 @@ fn build_ui(app: &Application) {
                     },
                     Ok(output) => {
                          let err = String::from_utf8_lossy(&output.stderr);
+                         log_to_file(&format!("Service start error: {}", err));
                          let dialog = adw::MessageDialog::builder()
                             .transient_for(&win_apply)
                             .heading(&t("Hata"))
@@ -1246,6 +1285,7 @@ fn build_ui(app: &Application) {
         if let Ok(guard) = current_pid_cancel.lock() {
             if let Some(pid) = *guard {
                 println!("İşlem iptal ediliyor... PID: {}", pid);
+                log_to_file(&format!("Process cancelling... PID: {}", pid));
                 let _ = Command::new("pkexec")
                     .arg("kill")
                     .arg("-9")
@@ -1525,7 +1565,19 @@ fn build_ui(app: &Application) {
                                                 .body(&t("Dosya kaydedilemedi: {}").replace("{}", &e.to_string()))
                                                 .build();
                                             dialog.add_response("ok", &t("Tamam"));
+                                            dialog.connect_response(None, move |d, _| d.close());
                                             dialog.present();
+                                            glib::ControlFlow::Break
+                                        } else if strategies.is_empty() {
+                                            let dialog = adw::MessageDialog::builder()
+                                                .transient_for(&win_timer)
+                                                .heading(&t("Strateji Bulunamadı"))
+                                                .body(&t("Blockcheck tamamlandı ancak çalışan bir strateji bulunamadı."))
+                                                .build();
+                                            dialog.add_response("ok", &t("Tamam"));
+                                            dialog.connect_response(None, move |d, _| d.close());
+                                            dialog.present();
+                                            nav_timer.pop();
                                             glib::ControlFlow::Break
                                         } else {
                                             lbl_timer.set_label(&t("Zapret Kuruluyor (/opt/zapret)..."));
@@ -1710,14 +1762,18 @@ fn update_config_content(content: &str, new_opt: &str) -> String {
 }
 fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: String, sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<AtomicBool>) {
     let domains_str = domains.join(" ");
+    log_to_file(&format!("Blockcheck started. Level: {}, Repeat: {}, Domains: {}", scan_level, repeats, domains_str));
     let zapret_dir = get_zapret_path();
     let blockcheck_script = zapret_dir.join("blockcheck.sh");
     if !blockcheck_script.exists() {
-        let _ = sender.send(TestMsg::Finished(Err(io::Error::new(io::ErrorKind::NotFound, t("blockcheck.sh bulunamadı: {}").replace("{}", &blockcheck_script.display().to_string())))));
+        let err_msg = t("blockcheck.sh bulunamadı: {}").replace("{}", &blockcheck_script.display().to_string());
+        log_to_file(&format!("Error: {}", err_msg));
+        let _ = sender.send(TestMsg::Finished(Err(io::Error::new(io::ErrorKind::NotFound, err_msg))));
         return;
     }
     let zapret_base_str = zapret_dir.to_string_lossy().to_string();
     println!("Executing blockcheck: pkexec env ... {:?}", blockcheck_script);
+    log_to_file(&format!("Executing blockcheck: pkexec env ... {:?}", blockcheck_script));
     let mut child = match Command::new("pkexec")
         .arg("env")
         .arg("BATCH=1")
@@ -1745,6 +1801,7 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
         for line_result in reader.lines() {
             if cancel_flag.load(Ordering::Relaxed) {
                 println!("Thread: İptal bayrağı algılandı, işlem durduruluyor.");
+                log_to_file("Thread: Cancel flag detected, stopping process.");
                 let _ = child.kill();
                 let _ = child.wait(); 
                 return; 
@@ -1752,6 +1809,7 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
             match line_result {
                 Ok(line) => {
                     println!("{}", line);
+                    log_to_file(&line);
                     full_output.push_str(&line);
                     full_output.push('\n');
                     let trimmed = line.trim();
@@ -1815,8 +1873,10 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
                  }
              }
         }
+        log_to_file(&format!("Blockcheck completed. {} strategies found.", strategies.len()));
         let _ = sender.send(TestMsg::Finished(Ok(strategies)));
     } else {
+        log_to_file("Error: Could not get Blockcheck stdout.");
         let _ = sender.send(TestMsg::Finished(Err(io::Error::new(io::ErrorKind::Other, t("Stdout alınamadı.")))));
     }
 }
@@ -1889,6 +1949,7 @@ fn run_easy_install_script(sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<Atomi
             }
             if let Ok(line) = line_result {
                 println!("[INSTALL]: {}", line);
+                log_to_file(&format!("[INSTALL]: {}", line));
                  let _ = sender.send(TestMsg::Log(line));
             }
         }
@@ -1943,7 +2004,8 @@ fn check_processes() -> Vec<String> {
         "goodbyedpi", 
         "openvpn", 
         "wireguard", 
-        "zapret"
+        "zapret",
+        "warp-svc"
     ];
     let mut found = Vec::new();
     for proc in to_check {
@@ -1960,6 +2022,7 @@ fn check_processes() -> Vec<String> {
     found
 }
 fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label, dns_label: Label, overwrite: bool, is_complete_flag: Rc<Cell<bool>>, is_installing_flag: Rc<Cell<bool>>, pid_store: Arc<Mutex<Option<u32>>>, cancel_flag: Arc<AtomicBool>, cancel_flag_ui: Arc<AtomicBool>) {
+    log_to_file(&format!("Installation command issued. Re-download: {}", overwrite));
     is_installing_flag.set(true);
     cancel_flag.store(false, Ordering::Relaxed);
     btn.set_sensitive(false);
@@ -2081,6 +2144,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                 let _ = file.write_all(root_commands.as_bytes());
             }
             println!("--- Installer Script Content ---\n{}\n--------------------------------", root_commands);
+            log_to_file(&format!("--- Installer Script Content ---\n{}\n--------------------------------", root_commands));
             let mut child = Command::new("pkexec")
                 .arg("/bin/sh")
                 .arg(script_path)
@@ -2095,6 +2159,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                     if cancel_flag_thread.load(Ordering::Relaxed) { break; }
                     if let Ok(l) = line {
                         println!("[Installer]: {}", l);
+                        log_to_file(&format!("[Installer]: {}", l));
                         if !l.starts_with("STATUS:") {
                              last_error_line = l.clone();
                         }
@@ -2142,57 +2207,70 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
         if cancel_flag_thread.load(Ordering::Relaxed) { return; }
         if !zapret_full_path.exists() {
             let _ = sender.send(AppMsg::Status(t("Zapret deposu indiriliyor...")));
-            let git_result = Command::new("git")
+            let git_output = Command::new("git")
                 .args(["clone", "https://github.com/bol-van/zapret.git", zapret_path_str.as_str()])
-                .status();
-            match git_result {
-                Ok(s) if s.success() => {
-                    if cancel_flag_thread.load(Ordering::Relaxed) { return; }
-                    let _ = sender.send(AppMsg::Status(t("Zapret derleniyor (make)...")));
-                    let mut make_cmd = Command::new("make");
-                    make_cmd.arg("-C").arg(&zapret_full_path);
-                    make_cmd.stdout(Stdio::piped());
-                    make_cmd.stderr(Stdio::piped());
-                    if let Ok(mut child) = make_cmd.spawn() {
-                         let _ = sender.send(AppMsg::PID(child.id()));
-                         let mut make_last_error = String::new();
-                         if let Some(stdout) = child.stdout.take() {
-                            let reader = BufReader::new(stdout);
-                            for line in reader.lines() {
-                                if let Ok(l) = line { 
-                                    println!("[MAKE_OUT]: {}", l); 
-                                    make_last_error = l;
+                .output();
+            match git_output {
+                Ok(output) => {
+                    if !output.stdout.is_empty() {
+                         let out = String::from_utf8_lossy(&output.stdout);
+                         println!("[GIT_OUT]: {}", out);
+                         log_to_file(&format!("[GIT_OUT]: {}", out));
+                    }
+                    if !output.stderr.is_empty() {
+                         let err = String::from_utf8_lossy(&output.stderr);
+                         println!("[GIT_ERR]: {}", err);
+                         log_to_file(&format!("[GIT_ERR]: {}", err));
+                    }
+                    if output.status.success() {
+                        if cancel_flag_thread.load(Ordering::Relaxed) { return; }
+                        let _ = sender.send(AppMsg::Status(t("Zapret derleniyor (make)...")));
+                        let mut make_cmd = Command::new("make");
+                        make_cmd.arg("-C").arg(&zapret_full_path);
+                        make_cmd.stdout(Stdio::piped());
+                        make_cmd.stderr(Stdio::piped());
+                        if let Ok(mut child) = make_cmd.spawn() {
+                            let _ = sender.send(AppMsg::PID(child.id()));
+                            let mut make_last_error = String::new();
+                            if let Some(stdout) = child.stdout.take() {
+                                let reader = BufReader::new(stdout);
+                                for line in reader.lines() {
+                                    if let Ok(l) = line { 
+                                        println!("[MAKE_OUT]: {}", l); 
+                                        log_to_file(&format!("[MAKE_OUT]: {}", l));
+                                        make_last_error = l;
+                                    }
                                 }
                             }
-                         }
-                         if let Some(stderr) = child.stderr.take() {
-                            let reader = BufReader::new(stderr);
-                            for line in reader.lines() {
-                                if let Ok(l) = line {
-                                     println!("[MAKE_ERR]: {}", l);
-                                     make_last_error = l;
+                            if let Some(stderr) = child.stderr.take() {
+                                let reader = BufReader::new(stderr);
+                                for line in reader.lines() {
+                                    if let Ok(l) = line {
+                                        println!("[MAKE_ERR]: {}", l);
+                                        log_to_file(&format!("[MAKE_ERR]: {}", l));
+                                        make_last_error = l;
+                                    }
                                 }
                             }
-                         }
-                         let make_result = child.wait();
-                         if cancel_flag_thread.load(Ordering::Relaxed) { return; }
-                         match make_result {
-                            Ok(m) if m.success() => {
-                                 let _ = sender.send(AppMsg::Done(Ok(())));
-                            },
-                            Ok(m) => {
-                                 let _ = sender.send(AppMsg::Done(Err(io::Error::new(io::ErrorKind::Other, t("Make hatası ({c}): {e}").replace("{c}", &m.code().unwrap_or(-1).to_string()).replace("{e}", &make_last_error)))));
-                            },
-                            Err(e) => {
-                                 let _ = sender.send(AppMsg::Done(Err(e)));
+                            let make_result = child.wait();
+                            if cancel_flag_thread.load(Ordering::Relaxed) { return; }
+                            match make_result {
+                                Ok(m) if m.success() => {
+                                    let _ = sender.send(AppMsg::Done(Ok(())));
+                                },
+                                Ok(m) => {
+                                    let _ = sender.send(AppMsg::Done(Err(io::Error::new(io::ErrorKind::Other, t("Make hatası ({c}): {e}").replace("{c}", &m.code().unwrap_or(-1).to_string()).replace("{e}", &make_last_error)))));
+                                },
+                                Err(e) => {
+                                    let _ = sender.send(AppMsg::Done(Err(e)));
+                                }
                             }
+                        } else {
+                            let _ = sender.send(AppMsg::Done(Err(io::Error::new(io::ErrorKind::Other, t("Make komutu başlatılamadı. 'make' kurulu mu?")))));
                         }
                     } else {
-                         let _ = sender.send(AppMsg::Done(Err(io::Error::new(io::ErrorKind::Other, t("Make komutu başlatılamadı. 'make' kurulu mu?")))));
+                         let _ = sender.send(AppMsg::Done(Err(io::Error::new(io::ErrorKind::Other, t("Git clone hatası.")))));
                     }
-                },
-                Ok(_) => {
-                    let _ = sender.send(AppMsg::Done(Err(io::Error::new(io::ErrorKind::Other, t("Git clone hatası.")))));
                 },
                 Err(e) => {
                     let _ = sender.send(AppMsg::Done(Err(e)));
@@ -2235,6 +2313,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                         }
                         match result {
                             Ok(_) => {
+                                log_to_file("Installation process completed successfully.");
                                 btn.set_label(&t("Devam"));
                                 btn.remove_css_class("destructive-action");
                                 btn.add_css_class("success");
@@ -2242,6 +2321,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                                 is_complete_flag.set(true);
                             },
                             Err(e) => {
+                                log_to_file(&format!("Installation failed: {}", e));
                                 btn.set_label(&t("Tekrar Dene"));
                                 btn.remove_css_class("destructive-action");
                                 btn.add_css_class("warning");
