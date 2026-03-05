@@ -90,7 +90,7 @@ fn init_i18n() {
         if let Ok(catalog) = Catalog::parse(&mut Cursor::new(bytes)) {
             *CATALOG.lock().unwrap() = Some(catalog);
         } else {
-            eprintln!("Çeviri kataloğu yüklenemedi.");
+            eprintln!("Failed to load translation catalog.");
         }
     }
 }
@@ -125,7 +125,7 @@ fn delete_local_zapret_folder() {
     thread::spawn(move || {
         let local_zapret = get_zapret_path();
         if local_zapret.exists() {
-            println!("Yerel zapret klasörü siliniyor: {:?}", local_zapret);
+            println!("Deleting local zapret folder: {:?}", local_zapret);
             log_to_file(&format!("Deleting local zapret folder: {:?}", local_zapret));
             if let Err(_) = fs::remove_dir_all(&local_zapret) {
                  let _ = Command::new("pkexec")
@@ -1025,7 +1025,7 @@ fn build_ui(app: &Application) {
             return;
         }
         let combined_strategies = selected_strategies.join(" ");
-        println!("Uygulanacak: {}", combined_strategies);
+        println!("Applying: {}", combined_strategies);
         log_to_file(&format!("Applying strategies: {}", combined_strategies));
         let config_path = Path::new("/opt/zapret/config");
         let content_res = fs::read_to_string(config_path).or_else(|_| {
@@ -1228,47 +1228,84 @@ fn build_ui(app: &Application) {
             });
             return;
         }
-        let zapret_path = get_zapret_path();
-        if zapret_path.exists() {
-            let dialog = adw::MessageDialog::builder()
-                .transient_for(&window_clone)
-                .modal(true)
-                .heading(&t("Klasör Bulundu"))
-                .body(&t("Mevcut bir 'zapret' klasörü tespit edildi. Ne yapmak istersiniz?"))
-                .build();
-            dialog.add_response("cancel", &t("İptal"));
-            dialog.add_response("accept", &t("Mevcut Olanı Kullan"));
-            dialog.add_response("reject", &t("Sil ve İndir"));
-            dialog.set_response_appearance("reject", ResponseAppearance::Destructive);
-            dialog.set_response_appearance("accept", ResponseAppearance::Suggested);
-            let btn_c = button_clone.clone();
-            let pb_c = progress_bar_clone.clone();
-            let lbl_c = status_label_clone.clone();
-            let pl_c = placeholder_label_clone.clone();
-            let dns_c = dns_warning_label_clone.clone();
-            let is_comp = is_complete_done.clone();
-            let is_inst = is_installing_direct.clone();
-            let pid_store = install_child_pid_run.clone();
-            let cancel_flg = install_cancel_flag_run.clone();
-            let cancel_flg_ui = install_cancel_flag_ui.clone();
-            dialog.connect_response(None, move |d, response_id| {
-                match response_id {
-                    "reject" => {
-                        d.close();
-                        run_installation(btn_c.clone(), pb_c.clone(), lbl_c.clone(), pl_c.clone(), dns_c.clone(), true, is_comp.clone(), is_inst.clone(), pid_store.clone(), cancel_flg.clone(), cancel_flg_ui.clone());
-                    },
-                    "accept" => {
-                        d.close();
-                        run_installation(btn_c.clone(), pb_c.clone(), lbl_c.clone(), pl_c.clone(), dns_c.clone(), false, is_comp.clone(), is_inst.clone(), pid_store.clone(), cancel_flg.clone(), cancel_flg_ui.clone());
-                    },
-                    _ => {
-                        d.close();
+        let _zapret_path = get_zapret_path();
+        
+        let window_clone_inner = window_clone.clone();
+        let button_clone_inner = button_clone.clone();
+        let progress_bar_clone_inner = progress_bar_clone.clone();
+        let status_label_clone_inner = status_label_clone.clone();
+        let placeholder_label_clone_inner = placeholder_label_clone.clone();
+        let dns_warning_label_clone_inner = dns_warning_label_clone.clone();
+        let is_complete_done_inner = is_complete_done.clone();
+        let is_installing_direct_inner = is_installing_direct.clone();
+        let install_child_pid_run_inner = install_child_pid_run.clone();
+        let install_cancel_flag_run_inner = install_cancel_flag_run.clone();
+        let install_cancel_flag_ui_inner = install_cancel_flag_ui.clone();
+
+        let run_installation_flow = Rc::new(move |set_dns: bool| {
+            let zapret_path = get_zapret_path();
+            if zapret_path.exists() {
+                let dialog = adw::MessageDialog::builder()
+                    .transient_for(&window_clone_inner)
+                    .modal(true)
+                    .heading(&t("Klasör Bulundu"))
+                    .body(&t("Mevcut bir 'zapret' klasörü tespit edildi. Ne yapmak istersiniz?"))
+                    .build();
+                dialog.add_response("cancel", &t("İptal"));
+                dialog.add_response("accept", &t("Mevcut Olanı Kullan"));
+                dialog.add_response("reject", &t("Sil ve İndir"));
+                dialog.set_response_appearance("reject", ResponseAppearance::Destructive);
+                dialog.set_response_appearance("accept", ResponseAppearance::Suggested);
+                let btn_c = button_clone_inner.clone();
+                let pb_c = progress_bar_clone_inner.clone();
+                let lbl_c = status_label_clone_inner.clone();
+                let pl_c = placeholder_label_clone_inner.clone();
+                let dns_c = dns_warning_label_clone_inner.clone();
+                let is_comp = is_complete_done_inner.clone();
+                let is_inst = is_installing_direct_inner.clone();
+                let pid_store = install_child_pid_run_inner.clone();
+                let cancel_flg = install_cancel_flag_run_inner.clone();
+                let cancel_flg_ui = install_cancel_flag_ui_inner.clone();
+                dialog.connect_response(None, move |d, response_id| {
+                    match response_id {
+                        "reject" => {
+                            d.close();
+                            run_installation(btn_c.clone(), pb_c.clone(), lbl_c.clone(), pl_c.clone(), dns_c.clone(), true, is_comp.clone(), is_inst.clone(), pid_store.clone(), cancel_flg.clone(), cancel_flg_ui.clone(), set_dns);
+                        },
+                        "accept" => {
+                            d.close();
+                            run_installation(btn_c.clone(), pb_c.clone(), lbl_c.clone(), pl_c.clone(), dns_c.clone(), false, is_comp.clone(), is_inst.clone(), pid_store.clone(), cancel_flg.clone(), cancel_flg_ui.clone(), set_dns);
+                        },
+                        _ => {
+                            d.close();
+                        }
                     }
-                }
+                });
+                dialog.present();
+            } else {
+                run_installation(button_clone_inner.clone(), progress_bar_clone_inner.clone(), status_label_clone_inner.clone(), placeholder_label_clone_inner.clone(), dns_warning_label_clone_inner.clone(), false, is_complete_done_inner.clone(), is_installing_direct_inner.clone(), install_child_pid_run_inner.clone(), install_cancel_flag_run_inner.clone(), install_cancel_flag_ui_inner.clone(), set_dns);
+            }
+        });
+
+        if check_network_manager() {
+             let dialog = adw::MessageDialog::builder()
+                .transient_for(&window_clone) 
+                .heading(&t("DNS Ayarı"))
+                .body(&t("Mevcut DNS adresiniz Cloudflare ile değiştirilsin mi? (Bu işlemin ne anlama geldiğini bilmiyorsanız 'Evet' butonuna tıklayarak devam edebilirsiniz.)"))
+                .build();
+            dialog.add_response("no", &t("Hayır"));
+            dialog.add_response("yes", &t("Evet"));
+            dialog.set_response_appearance("yes", ResponseAppearance::Suggested);
+            
+            let flow_clone = run_installation_flow.clone();
+            dialog.connect_response(None, move |d, response_id| {
+                d.close();
+                let set_dns = response_id == "yes";
+                flow_clone(set_dns);
             });
             dialog.present();
         } else {
-            run_installation(button_clone.clone(), progress_bar_clone.clone(), status_label_clone.clone(), placeholder_label_clone.clone(), dns_warning_label_clone.clone(), false, is_complete_done.clone(), is_installing_direct.clone(), install_child_pid_run.clone(), install_cancel_flag_run.clone(), install_cancel_flag_ui.clone());
+             run_installation_flow(false);
         }
     });
     force_continue_button.connect_clicked(move |_| {
@@ -1284,7 +1321,7 @@ fn build_ui(app: &Application) {
         test_cancel_flag_btn.store(true, Ordering::Relaxed);
         if let Ok(guard) = current_pid_cancel.lock() {
             if let Some(pid) = *guard {
-                println!("İşlem iptal ediliyor... PID: {}", pid);
+                println!("Canceling process... PID: {}", pid);
                 log_to_file(&format!("Process cancelling... PID: {}", pid));
                 let _ = Command::new("pkexec")
                     .arg("kill")
@@ -1800,7 +1837,7 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
         let mut full_output = String::new();
         for line_result in reader.lines() {
             if cancel_flag.load(Ordering::Relaxed) {
-                println!("Thread: İptal bayrağı algılandı, işlem durduruluyor.");
+                println!("Thread: Cancel flag detected, stopping process.");
                 log_to_file("Thread: Cancel flag detected, stopping process.");
                 let _ = child.kill();
                 let _ = child.wait(); 
@@ -2021,8 +2058,21 @@ fn check_processes() -> Vec<String> {
     }
     found
 }
-fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label, dns_label: Label, overwrite: bool, is_complete_flag: Rc<Cell<bool>>, is_installing_flag: Rc<Cell<bool>>, pid_store: Arc<Mutex<Option<u32>>>, cancel_flag: Arc<AtomicBool>, cancel_flag_ui: Arc<AtomicBool>) {
-    log_to_file(&format!("Installation command issued. Re-download: {}", overwrite));
+fn check_network_manager() -> bool {
+    if Command::new("which").arg("nmcli").output().is_err() {
+        return false;
+    }
+    if let Ok(output) = Command::new("nmcli").arg("general").arg("status").output() {
+        if output.status.success() {
+             let _out = String::from_utf8_lossy(&output.stdout);
+             return true;
+        }
+    }
+    false
+}
+
+fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label, dns_label: Label, overwrite: bool, is_complete_flag: Rc<Cell<bool>>, is_installing_flag: Rc<Cell<bool>>, pid_store: Arc<Mutex<Option<u32>>>, cancel_flag: Arc<AtomicBool>, cancel_flag_ui: Arc<AtomicBool>, set_dns: bool) {
+    log_to_file(&format!("Installation command issued. Re-download: {}, Set DNS: {}", overwrite, set_dns));
     is_installing_flag.set(true);
     cancel_flag.store(false, Ordering::Relaxed);
     btn.set_sensitive(false);
@@ -2115,6 +2165,17 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
         root_commands.push_str(&format!("  sed -i \"40s/^listen_addresses = \\['127\\.0\\.0\\.1:53'\\]$/listen_addresses = ['127.0.0.1:53', '[::1]:53']/\" {}\n", config_file));
         root_commands.push_str("fi\n");
         if !needs_root_permission { needs_root_permission = true; }
+        if set_dns {
+            root_commands.push_str("echo \"STATUS:SETTING_DNS\"\n");
+            root_commands.push_str("if command -v nmcli >/dev/null 2>&1; then\n");
+            root_commands.push_str("  ACTIVE_CON=$(nmcli -t -f NAME,DEVICE,STATE connection show --active | head -n1 | cut -d: -f1)\n");
+            root_commands.push_str("  if [ -n \"$ACTIVE_CON\" ]; then\n");
+            root_commands.push_str("    nmcli connection modify \"$ACTIVE_CON\" ipv4.dns \"1.1.1.1 1.0.0.1\"\n");
+            root_commands.push_str("    nmcli connection modify \"$ACTIVE_CON\" ipv4.ignore-auto-dns yes\n");
+            root_commands.push_str("  fi\n");
+            root_commands.push_str("fi\n");
+             if !needs_root_permission { needs_root_permission = true; }
+        }
         {
             root_commands.push_str("echo \"STATUS:FINALIZING\"\n");
             let init = get_init_system();
@@ -2171,6 +2232,8 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                             let _ = sender.send(AppMsg::Status(t("DNSCrypt-proxy kuruluyor...")));
                         } else if l.contains("STATUS:CONFIGURING") {
                             let _ = sender.send(AppMsg::Status(t("DNS ayarları yapılıyor...")));
+                        } else if l.contains("STATUS:SETTING_DNS") {
+                            let _ = sender.send(AppMsg::Status(t("Cloudflare DNS ayarlanıyor...")));
                         } else if l.contains("STATUS:FINALIZING") {
                             let _ = sender.send(AppMsg::Status(t("Ağ ayarları ve servisler başlatılıyor...")));
                         }
@@ -2185,7 +2248,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                 Ok(s) if s.success() => {
                     let _ = sender.send(AppMsg::Status(t("NetworkManager Bekleniyor...")));
                     let _ = fs::remove_file(script_path);
-                    thread::sleep(Duration::from_secs(5));
+                    thread::sleep(Duration::from_secs(10));
                 },
                 Ok(s) => {
                     let error_msg = if !last_error_line.is_empty() {

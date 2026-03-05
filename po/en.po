@@ -320,3 +320,18 @@ msgstr "Strategy Not Found"
 
 msgid "Blockcheck tamamlandı ancak çalışan bir strateji bulunamadı."
 msgstr "Blockcheck completed but no working strategy was found."
+
+msgid "DNS Ayarı"
+msgstr "DNS Settings"
+
+msgid "Mevcut DNS adresiniz Cloudflare ile değiştirilsin mi? (Bu işlemin ne anlama geldiğini bilmiyorsanız 'Evet' butonuna tıklayarak devam edebilirsiniz.)"
+msgstr "Should your current DNS address be changed to Cloudflare? (If you don't know what this means, you can click 'Yes' to continue.)"
+
+msgid "Hayır"
+msgstr "No"
+
+msgid "Evet"
+msgstr "Yes"
+
+msgid "Cloudflare DNS ayarlanıyor..."
+msgstr "Configuring Cloudflare DNS..."
