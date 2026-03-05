@@ -39,3 +39,13 @@ assets = [
     { source = "zapretgtk512.png", dest = "/usr/share/icons/hicolor/512x512/apps/zapret-gtk.png", mode = "644" },
     { source = "zapret-gtk.desktop", dest = "/usr/share/applications/zapret-gtk.desktop", mode = "644" }
 ]
+
+[package.metadata.generate-rpm.requires]
+gtk4 = "*"
+libadwaita = "*"
+glibc = "*"
+iptables = "*"
+curl = "*"
+git = "*"
+procps-ng = "*"
+polkit = "*"
