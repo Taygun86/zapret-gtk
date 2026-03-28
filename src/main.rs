@@ -109,7 +109,7 @@ enum TestMsg {
 fn main() {
     rotate_logs();
     init_i18n();
-    log_to_file("Application started (v0.4.0)");
+    log_to_file("Application started (v0.5.0)");
     let app = Application::builder()
         .application_id("com.ornek.zapret-gtk")
         .build();
@@ -717,7 +717,7 @@ fn build_ui(app: &Application) {
          let about = gtk::AboutDialog::builder()
             .transient_for(&win_about)
             .program_name("Zapret GTK")
-            .version("0.4 Beta")
+            .version("0.5 Beta")
             .logo(&texture)
             .comments(&t("Zapret için modern GTK4 arayüzü."))
             .website("https://github.com/Taygun86/zapret-gtk")
@@ -2271,7 +2271,9 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
         if !zapret_full_path.exists() {
             let _ = sender.send(AppMsg::Status(t("Zapret deposu indiriliyor...")));
             let git_output = Command::new("git")
-                .args(["clone", "https://github.com/bol-van/zapret.git", zapret_path_str.as_str()])
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_SYSTEM", "/dev/null")
+                .args(["-c", "url.https://github.com/.insteadOf=", "clone", "https://github.com/bol-van/zapret.git", zapret_path_str.as_str()])
                 .output();
             match git_output {
                 Ok(output) => {
