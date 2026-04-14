@@ -714,8 +714,9 @@ fn build_ui(app: &Application) {
     about_btn.connect_clicked(move |_| {
         let bytes = glib::Bytes::from_static(ICON_BYTES);
         let texture = gdk::Texture::from_bytes(&bytes).expect("Icon load fail");
-         let about = gtk::AboutDialog::builder()
+        let about = gtk::AboutDialog::builder()
             .transient_for(&win_about)
+            .modal(true)
             .program_name("Zapret GTK")
             .version("0.5 Beta")
             .logo(&texture)
