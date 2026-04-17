@@ -859,7 +859,18 @@ fn build_ui(app: &Application) {
                                     if c == '"' {
                                         in_string = !in_string;
                                         if !in_string && !current_strat.is_empty() {
-                                            strategies.push(current_strat.clone());
+                                            let mut strategy = current_strat.clone();
+                                            let zapret_base_str = get_zapret_path().to_string_lossy().to_string();
+                                            strategy = strategy.replace(&zapret_base_str, "/opt/zapret");
+                                            
+                                            if let Some(start) = strategy.find("/home/") {
+                                                if let Some(end) = strategy[start..].find("/zapret/") {
+                                                    let old_path = &strategy[start..start + end + 7];
+                                                    let old_path_str = old_path.to_string();
+                                                    strategy = strategy.replace(&old_path_str, "/opt/zapret");
+                                                }
+                                            }
+                                            strategies.push(strategy);
                                             current_strat.clear();
                                         }
                                     } else if in_string {
@@ -1738,7 +1749,18 @@ fn validate_and_copy_strategies(path: &Path) -> io::Result<()> {
                 escaped = true;
             } else if c == '"' {
                 in_string = false;
-                strategies.push(current_string.clone());
+                let mut strategy = current_string.clone();
+                let zapret_base_str = get_zapret_path().to_string_lossy().to_string();
+                strategy = strategy.replace(&zapret_base_str, "/opt/zapret");
+                
+                if let Some(start) = strategy.find("/home/") {
+                    if let Some(end) = strategy[start..].find("/zapret/") {
+                        let old_path = &strategy[start..start + end + 7];
+                        strategy = strategy.replace(old_path, "/opt/zapret");
+                    }
+                }
+                
+                strategies.push(strategy);
                 current_string.clear();
             } else {
                 current_string.push(c);
@@ -1752,13 +1774,12 @@ fn validate_and_copy_strategies(path: &Path) -> io::Result<()> {
     if strategies.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidData, t("Dosya içerisinde strateji bulunamadı.")));
     }
-    for s in strategies {
+    for s in &strategies {
         if !s.trim().starts_with("--") {
             return Err(io::Error::new(io::ErrorKind::InvalidData, t("Geçersiz strateji: '{}'. Stratejiler '--' ile başlamalıdır.").replace("{}", &s)));
         }
     }
-    let dest = get_config_path();
-    fs::write(dest, content)?;
+    save_strategies_to_json(&strategies)?;
     Ok(())
 }
 fn update_config_content(content: &str, new_opt: &str) -> String {
@@ -1892,7 +1913,8 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
                 }
                 if let Some(idx) = trimmed.find("nfqws ") {
                     if !trimmed.contains("checking") && !trimmed.contains(">>") && !trimmed.contains("not working") {
-                        let strategy = trimmed[idx + 6..].trim().to_string();
+                        let mut strategy = trimmed[idx + 6..].trim().to_string();
+                        strategy = strategy.replace(&zapret_base_str, "/opt/zapret");
                         strategies.push(strategy);
                     }
                 }
@@ -1903,7 +1925,8 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
                 let trimmed = line.trim();
                  if let Some(idx) = trimmed.find("nfqws ") {
                      if !trimmed.contains("checking") && !trimmed.contains(">>") && !trimmed.contains("not working") {
-                        let strategy = trimmed[idx + 6..].trim().to_string();
+                        let mut strategy = trimmed[idx + 6..].trim().to_string();
+                        strategy = strategy.replace(&zapret_base_str, "/opt/zapret");
                         if !strategies.contains(&strategy) {
                             strategies.push(strategy);
                         }
