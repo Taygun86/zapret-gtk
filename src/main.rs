@@ -399,7 +399,7 @@ fn build_ui(app: &Application) {
         .build();
     top_box_mgmt.append(&mgmt_title);
     let mgmt_desc = Label::builder()
-        .label(&t("Aşağıda Blockcheck testi sonucunda bulunan çalışan stratejiler listelenmiştir.\n Kullanmak istediklerinizi seçin ve 'Uygula' butonuna tıklayın."))
+        .label(&t("Aşağıda Blockcheck testi sonucunda bulunan çalışan stratejiler listelenmiştir.\nKullanmak istediklerinizi seçin ve 'Uygula' butonuna tıklayın."))
         .wrap(true)
         .max_width_chars(40)
         .halign(gtk::Align::Start)

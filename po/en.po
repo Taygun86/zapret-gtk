@@ -120,7 +120,7 @@ msgstr "Git clone error."
 msgid "Mevcut zapret klasörü kullanılıyor."
 msgstr "Using existing zapret folder."
 
-msgid "Aşağıda Blockcheck testi sonucunda bulunan çalışan stratejiler listelenmiştir.\n Kullanmak istediklerinizi seçin ve 'Uygula' butonuna tıklayın."
+msgid "Aşağıda Blockcheck testi sonucunda bulunan çalışan stratejiler listelenmiştir.\nKullanmak istediklerinizi seçin ve 'Uygula' butonuna tıklayın."
 msgstr "The working strategies found as a result of the Blockcheck test are listed below.\n Select the ones you want to use and click the 'Apply' button."
 
 msgid "Başarılı"
