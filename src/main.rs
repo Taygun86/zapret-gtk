@@ -652,6 +652,26 @@ fn build_ui(app: &Application) {
                     status_text = out;
                 }
             }
+        } else if init_sys == "sysvinit" {
+            if let Ok(o) = Command::new("service").arg("zapret").arg("status").output() {
+                let out = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if out.contains("is running") || o.status.success() {
+                    is_active = true;
+                    status_text = "active".to_string();
+                } else {
+                    status_text = "stopped".to_string();
+                }
+            }
+        } else if init_sys == "dinit" {
+            if let Ok(o) = Command::new("dinitctl").arg("status").arg("zapret").output() {
+                let out = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if out.contains("State: STARTED") {
+                    is_active = true;
+                    status_text = "active".to_string();
+                } else {
+                    status_text = "stopped".to_string();
+                }
+            }
         }
         if is_active {
             status_label_mgmt_timer.set_label(&t("Çalışıyor (Active)"));
@@ -696,6 +716,10 @@ fn build_ui(app: &Application) {
              let _ = Command::new("pkexec").arg("rc-service").arg("zapret").arg("start").spawn();
          } else if init == "runit" {
              let _ = Command::new("pkexec").arg("sv").arg("up").arg("zapret").spawn();
+         } else if init == "sysvinit" {
+             let _ = Command::new("pkexec").arg("service").arg("zapret").arg("start").spawn();
+         } else if init == "dinit" {
+             let _ = Command::new("pkexec").arg("dinitctl").arg("start").arg("zapret").spawn();
          } else {
              let _ = Command::new("pkexec").arg("systemctl").arg("start").arg("zapret").spawn();
          }
@@ -706,6 +730,10 @@ fn build_ui(app: &Application) {
              let _ = Command::new("pkexec").arg("rc-service").arg("zapret").arg("stop").spawn();
          } else if init == "runit" {
              let _ = Command::new("pkexec").arg("sv").arg("down").arg("zapret").spawn();
+         } else if init == "sysvinit" {
+             let _ = Command::new("pkexec").arg("service").arg("zapret").arg("stop").spawn();
+         } else if init == "dinit" {
+             let _ = Command::new("pkexec").arg("dinitctl").arg("stop").arg("zapret").spawn();
          } else {
              let _ = Command::new("pkexec").arg("systemctl").arg("stop").arg("zapret").spawn();
          }
@@ -801,6 +829,10 @@ fn build_ui(app: &Application) {
                  
                  if init == "runit" {
                      cmd.push_str("sv down zapret; rm /var/service/zapret; rm -rf /etc/sv/zapret; ");
+                 } else if init == "sysvinit" {
+                     cmd.push_str("service zapret stop; if command -v update-rc.d >/dev/null 2>&1; then update-rc.d -f zapret remove; elif command -v chkconfig >/dev/null 2>&1; then chkconfig --del zapret; fi; rm /etc/init.d/zapret; ");
+                 } else if init == "dinit" {
+                     cmd.push_str("dinitctl stop zapret; dinitctl disable zapret; rm /etc/dinit.d/zapret; ");
                  } else if init == "systemd" {
                      cmd.push_str("systemctl stop zapret; systemctl disable zapret; ");
                  } else if init == "openrc" {
@@ -1066,6 +1098,10 @@ fn build_ui(app: &Application) {
                     "rc-service zapret restart"
                 } else if init == "runit" {
                     "sv restart zapret"
+                } else if init == "sysvinit" {
+                    "service zapret restart"
+                } else if init == "dinit" {
+                    "dinitctl restart zapret"
                 } else {
                     "systemctl restart zapret"
                 };
@@ -1972,10 +2008,28 @@ fn run_easy_install_script(sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<Atomi
     if init_system == "runit" {
         post_install_cmds.push_str("if [ -d \"/opt/zapret/init.d/runit/zapret\" ]; then\n");
         post_install_cmds.push_str("  mkdir -p /etc/sv/zapret\n");
-        post_install_cmds.push_str("  cp -r /opt/zapret/init.d/runit/zapret/* /etc/sv/zapret/\n");
+        post_install_cmds.push_str("  cp -rf /opt/zapret/init.d/runit/zapret/* /etc/sv/zapret/\n");
         post_install_cmds.push_str("  chmod +x /etc/sv/zapret/run\n");
         post_install_cmds.push_str("  ln -sf /etc/sv/zapret /var/service/zapret\n");
-        post_install_cmds.push_str("  sv up zapret\n");
+        post_install_cmds.push_str("  sv up zapret || true\n");
+        post_install_cmds.push_str("fi\n");
+    } else if init_system == "sysvinit" {
+        post_install_cmds.push_str("if [ -f \"/opt/zapret/init.d/sysv/zapret\" ]; then\n");
+        post_install_cmds.push_str("  cp -f /opt/zapret/init.d/sysv/zapret /etc/init.d/\n");
+        post_install_cmds.push_str("  chmod +x /etc/init.d/zapret\n");
+        post_install_cmds.push_str("  if command -v update-rc.d >/dev/null 2>&1; then\n");
+        post_install_cmds.push_str("    update-rc.d zapret defaults || true\n");
+        post_install_cmds.push_str("  elif command -v chkconfig >/dev/null 2>&1; then\n");
+        post_install_cmds.push_str("    chkconfig --add zapret || true\n");
+        post_install_cmds.push_str("  fi\n");
+        post_install_cmds.push_str("  service zapret start || true\n");
+        post_install_cmds.push_str("fi\n");
+    } else if init_system == "dinit" {
+        post_install_cmds.push_str("if [ -f \"/opt/zapret/init.d/dinit/zapret\" ]; then\n");
+        post_install_cmds.push_str("  mkdir -p /etc/dinit.d\n");
+        post_install_cmds.push_str("  cp -f /opt/zapret/init.d/dinit/zapret /etc/dinit.d/\n");
+        post_install_cmds.push_str("  dinitctl enable zapret || true\n");
+        post_install_cmds.push_str("  dinitctl start zapret || true\n");
         post_install_cmds.push_str("fi\n");
     }
     let wrapper_content_fixed = format!(
@@ -2066,7 +2120,18 @@ fn check_processes() -> Vec<String> {
         "openvpn", 
         "wireguard", 
         "zapret",
-        "warp-svc"
+        "warp-svc",
+        "protonvpn-app",
+        "protonvpn",
+        "mullvad-daemon",
+        "tailscaled",
+        "nordvpnd",
+        "expressvpnd",
+        "surfsharkd",
+        "windscribe",
+        "cyberghostvpnd",
+        "openconnect",
+        "vpnagentd"
     ];
     let mut found = Vec::new();
     for proc in to_check {
@@ -2114,7 +2179,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
     let cancel_flag_thread = cancel_flag.clone();
     thread::spawn(move || {
         let _ = sender.send(AppMsg::Status("Sistem kontrol ediliyor...".to_string()));
-        let mut root_commands = String::from("#!/bin/sh\nset -e\nexec 2>&1\n");
+        let mut root_commands = String::from("#!/bin/sh\nset -e\nexec 2>&1\nexec < /dev/null\n");
         let mut needs_root_permission = false;
         let distro_id = get_distro_id();
         let zapret_full_path = get_zapret_path();
@@ -2158,7 +2223,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                     root_commands.push_str("apt-get update\n");
                 },
                 "arch" | "manjaro" | "endeavouros" | "cachyos" | "artix" | "garuda" | "omarchy" => {
-                    root_commands.push_str("pacman -Sy\n");
+                    root_commands.push_str("pacman -Sy --noconfirm\n");
                 },
                 "fedora" | "nobara" => {
                     root_commands.push_str("dnf makecache\n");
@@ -2213,6 +2278,16 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                 root_commands.push_str("ln -sf /etc/sv/dnscrypt-proxy /var/service/\n");
                 root_commands.push_str("sleep 5\n");
                 root_commands.push_str("sv up dnscrypt-proxy || true\n");
+            }
+            else if init == "sysvinit" {
+                root_commands.push_str("service NetworkManager restart || true\n");
+                root_commands.push_str("update-rc.d dnscrypt-proxy defaults || chkconfig --add dnscrypt-proxy\n");
+                root_commands.push_str("service dnscrypt-proxy start\n");
+            }
+            else if init == "dinit" {
+                root_commands.push_str("dinitctl restart NetworkManager || true\n");
+                root_commands.push_str("dinitctl enable dnscrypt-proxy || true\n");
+                root_commands.push_str("dinitctl start dnscrypt-proxy || true\n");
             }
             else {
                 root_commands.push_str("systemctl restart NetworkManager\n");
@@ -2297,7 +2372,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
             let git_output = Command::new("git")
                 .env("GIT_CONFIG_GLOBAL", "/dev/null")
                 .env("GIT_CONFIG_SYSTEM", "/dev/null")
-                .args(["-c", "url.https://github.com/.insteadOf=", "clone", "https://github.com/bol-van/zapret.git", zapret_path_str.as_str()])
+                .args(["clone", "https://github.com/bol-van/zapret.git", zapret_path_str.as_str()])
                 .output();
             match git_output {
                 Ok(output) => {
@@ -2436,6 +2511,12 @@ fn get_init_system() -> String {
     if Path::new("/run/runit").exists() || Path::new("/etc/runit").exists() {
         return "runit".to_string();
     }
+    if Path::new("/sbin/dinit").exists() || Path::new("/etc/dinit.d").exists() {
+        return "dinit".to_string();
+    }
+    if Path::new("/etc/init.d").exists() && !Path::new("/run/systemd/system").exists() {
+        return "sysvinit".to_string();
+    }
     if Command::new("systemctl").arg("--version").output().is_ok() {
         return "systemd".to_string();
     }
@@ -2444,6 +2525,12 @@ fn get_init_system() -> String {
     }
     if Command::new("sv").output().is_ok() {
         return "runit".to_string();
+    }
+    if Command::new("dinitctl").arg("--help").output().is_ok() {
+        return "dinit".to_string();
+    }
+    if Command::new("service").arg("--version").output().is_ok() {
+        return "sysvinit".to_string();
     }
     "unknown".to_string()
 }
@@ -2555,7 +2642,7 @@ fn is_package_installed(distro: &str, package_name: &str) -> bool {
 fn get_package_install_command(distro: &str, package: &str) -> Vec<String> {
     let p = get_distro_package_name(distro, package);
     match distro {
-        "arch" | "manjaro" | "endeavouros" | "cachyos" | "artix" | "garuda" | "omarchy" => vec!["pacman".to_string(), "-S".to_string(), "--noconfirm".to_string(), p],
+        "arch" | "manjaro" | "endeavouros" | "cachyos" | "artix" | "garuda" | "omarchy" => vec!["pacman".to_string(), "-S".to_string(), "--noconfirm".to_string(), "--needed".to_string(), p],
         "fedora" | "nobara" => vec!["dnf".to_string(), "install".to_string(), "-y".to_string(), p],
         "opensuse" | "opensuse-tumbleweed" | "opensuse-leap" | "suse" => vec!["zypper".to_string(), "--non-interactive".to_string(), "in".to_string(), p],
         "alpine" => vec!["apk".to_string(), "add".to_string(), p],
