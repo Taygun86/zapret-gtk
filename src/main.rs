@@ -110,6 +110,7 @@ fn main() {
     rotate_logs();
     init_i18n();
     log_to_file("Application started (v0.5.0)");
+    ensure_polkit_rules_installed();
     let app = Application::builder()
         .application_id("com.ornek.zapret-gtk")
         .build();
@@ -334,23 +335,33 @@ fn build_ui(app: &Application) {
     entries_container.set_margin_end(10);
     scrolled_window.set_child(Some(&entries_container));
     top_box2.append(&scrolled_window);
-    let add_button = Button::builder()
-        .icon_name("list-add-symbolic")
-        .tooltip_text(&t("Yeni satır ekle"))
-        .css_classes(vec!["flat"])
-        .margin_bottom(10)
-        .build();
-    let entries_container_clone = entries_container.clone();
-    add_button.connect_clicked(move |_| {
-        add_entry_row(&entries_container_clone, true);
-    });
-    top_box2.append(&add_button);
     content_box2.append(&top_box2);
     let bottom_box2 = Box::new(Orientation::Vertical, 0);
+    bottom_box2.set_margin_start(10);
+    bottom_box2.set_margin_end(10);
+    bottom_box2.set_margin_bottom(10);
+
+    let preset_btn_content = Box::new(Orientation::Horizontal, 8);
+    preset_btn_content.set_halign(gtk::Align::Center);
+    let preset_icon = gtk::Image::from_icon_name("starred-symbolic");
+    let preset_lbl = Label::new(Some(&t("Hazır Stratejileri Yükle (Hızlı Kurulum)")));
+    preset_btn_content.append(&preset_icon);
+    preset_btn_content.append(&preset_lbl);
+
+    let preset_button = Button::builder()
+        .child(&preset_btn_content)
+        .css_classes(vec!["pill"])
+        .margin_start(10)
+        .margin_end(10)
+        .margin_top(5)
+        .margin_bottom(5)
+        .build();
+    bottom_box2.append(&preset_button);
+
     let action_buttons_box = Box::new(Orientation::Horizontal, 10);
     action_buttons_box.set_halign(gtk::Align::Center);
-    action_buttons_box.set_margin_top(10);
-    action_buttons_box.set_margin_bottom(10);
+    action_buttons_box.set_margin_top(5);
+    action_buttons_box.set_margin_bottom(5);
     let import_btn_content = Box::new(Orientation::Horizontal, 10);
     import_btn_content.set_halign(gtk::Align::Center);
     let import_icon = gtk::Image::from_icon_name("document-open-symbolic");
@@ -370,7 +381,20 @@ fn build_ui(app: &Application) {
     action_buttons_box.append(&finish_button);
     bottom_box2.append(&action_buttons_box);
     content_box2.append(&bottom_box2);
-    add_entry_row(&entries_container, false);
+    let add_button = Button::builder()
+        .icon_name("list-add-symbolic")
+        .tooltip_text(&t("Yeni satır ekle"))
+        .css_classes(vec!["flat", "circular"])
+        .halign(gtk::Align::Center)
+        .margin_top(5)
+        .margin_bottom(5)
+        .build();
+    let entries_container_clone = entries_container.clone();
+    let add_button_clone = add_button.clone();
+    add_button.connect_clicked(move |_| {
+        add_entry_row(&entries_container_clone, &add_button_clone, true);
+    });
+    add_entry_row(&entries_container, &add_button, false);
     let view2 = ToolbarView::builder()
         .content(&content_box2)
         .build();
@@ -775,6 +799,8 @@ fn build_ui(app: &Application) {
     let page2_clone_for_force = page2.clone();
     let nav_view_clone_for_test = nav_view.clone();
     let label_test_counter_clone = label_test_counter.clone();
+    let label_test_title_clone = label_test_title.clone();
+    let label_test_info_clone = label_test_info.clone();
     let is_installation_complete = Rc::new(Cell::new(false));
     let is_complete_click = is_installation_complete.clone();
     let is_complete_done = is_installation_complete.clone();
@@ -797,6 +823,14 @@ fn build_ui(app: &Application) {
     let win_delete = window.clone();
     let nav_delete = nav_view.clone();
     let page1_delete = page1.clone();
+    let is_installation_complete_delete = is_installation_complete.clone();
+    let is_installing_delete = is_installing.clone();
+    let button_clone_delete = button.clone();
+    let placeholder_label_clone_delete = placeholder_label.clone();
+    let dns_warning_label_clone_delete = dns_warning_label.clone();
+    let status_label_clone_delete = status_label.clone();
+    let progress_bar_clone_delete = progress_bar.clone();
+    let list_box_mgmt_delete = strategies_list_box.clone();
     
     delete_btn.connect_clicked(move |_| {
          let dialog = adw::MessageDialog::builder()
@@ -811,6 +845,14 @@ fn build_ui(app: &Application) {
         let nav = nav_delete.clone();
         let p1 = page1_delete.clone();
         let win_err = win_delete.clone();
+        let is_comp_del = is_installation_complete_delete.clone();
+        let is_inst_del = is_installing_delete.clone();
+        let btn_del = button_clone_delete.clone();
+        let pl_del = placeholder_label_clone_delete.clone();
+        let dns_del = dns_warning_label_clone_delete.clone();
+        let st_del = status_label_clone_delete.clone();
+        let pb_del = progress_bar_clone_delete.clone();
+        let list_del = list_box_mgmt_delete.clone();
         
         dialog.connect_response(None, move |d, response| {
             if response == "delete" {
@@ -819,7 +861,6 @@ fn build_ui(app: &Application) {
                  let mut cmd = String::new();
                  
                  cmd.push_str("if [ -f /opt/zapret/uninstall_easy.sh ]; then sh /opt/zapret/uninstall_easy.sh; fi; ");
-                 
                  cmd.push_str("rm -rf /opt/zapret; ");
                  
                  if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
@@ -848,6 +889,31 @@ fn build_ui(app: &Application) {
                  match res {
                     Ok(_) => {
                         d.close();
+                        is_comp_del.set(false);
+                        is_inst_del.set(false);
+                        btn_del.set_label(&t("Kuruluma Başla"));
+                        btn_del.remove_css_class("success");
+                        btn_del.remove_css_class("warning");
+                        btn_del.remove_css_class("destructive-action");
+                        btn_del.add_css_class("suggested-action");
+                        btn_del.set_sensitive(true);
+
+                        pl_del.set_label(&t("Zapret DPI bypass yazılımını kurmak ve yapılandırmak için başlayın."));
+                        pl_del.set_visible(true);
+                        dns_del.set_visible(true);
+
+                        st_del.set_label(&t("Hazır"));
+                        st_del.set_visible(false);
+                        st_del.remove_css_class("error");
+                        st_del.remove_css_class("success");
+
+                        pb_del.set_fraction(0.0);
+                        pb_del.set_visible(false);
+
+                        while let Some(child) = list_del.first_child() {
+                            list_del.remove(&child);
+                        }
+
                         nav.replace(&[p1.clone()]);
                     },
                     Err(e) => {
@@ -1380,9 +1446,174 @@ fn build_ui(app: &Application) {
         }
         nav_view_clone_cancel.pop();
     });
+    let window_clone_preset = window.clone();
+    let nav_view_clone_preset_btn = nav_view.clone();
+    let page_test_clone_preset = page_test.clone();
+    let lbl_test_clone_preset = label_test_counter.clone();
+    let lbl_title_preset = label_test_title.clone();
+    let lbl_info_preset = label_test_info.clone();
+    let pid_clone_preset = current_pid.clone();
+    let cf_clone_preset = test_cancel_flag.clone();
+    let nav_mgmt_preset = nav_view_clone_mgmt.clone();
+    let page_mgmt_preset = page_mgmt_clone.clone();
+    let list_mgmt_preset = list_box_mgmt.clone();
+
+    preset_button.connect_clicked(move |_| {
+        let dialog = adw::MessageDialog::builder()
+            .transient_for(&window_clone_preset)
+            .heading(&t("Hazır Stratejileri Yükle"))
+            .body(&t("Bu stratejiler çoğu durumda çalışır ancak her internet servis sağlayıcısında veya ağda çalışmayabilir.\n\nYine de devam edip kurmak istiyor musunuz?"))
+            .build();
+        dialog.add_response("cancel", &t("İptal"));
+        dialog.add_response("confirm", &t("Evet, Devam Et"));
+        dialog.set_response_appearance("confirm", ResponseAppearance::Suggested);
+
+        let nav = nav_view_clone_preset_btn.clone();
+        let page = page_test_clone_preset.clone();
+        let lbl = lbl_test_clone_preset.clone();
+        let lbl_title = lbl_title_preset.clone();
+        let lbl_info = lbl_info_preset.clone();
+        let pid = pid_clone_preset.clone();
+        let cf = cf_clone_preset.clone();
+        let list_box_mgmt_timer = list_mgmt_preset.clone();
+        let nav_mgmt_timer = nav_mgmt_preset.clone();
+        let page_mgmt_timer = page_mgmt_preset.clone();
+        let win_timer = window_clone_preset.clone();
+        let win_err = window_clone_preset.clone();
+
+        dialog.connect_response(None, move |d, response| {
+            if response == "confirm" {
+                d.close();
+                match apply_preset_strategies() {
+                    Ok(_) => {
+                        cf.store(false, Ordering::Relaxed);
+                        lbl_title.set_label(&t("Zapret Kuruluyor..."));
+                        lbl_info.set_label(&t("Zapret dosyaları ve yapılandırması hazırlanıyor.\nLütfen bekleyiniz."));
+                        lbl.set_label(&t("Kurulum hazırlanıyor..."));
+                        nav.push(&page);
+                        let (sender, receiver) = mpsc::channel();
+                        let sender_thread = sender.clone();
+                        let cf_thread = cf.clone();
+                        thread::spawn(move || {
+                            run_easy_install_script(sender_thread, cf_thread);
+                        });
+                        let nav_timer = nav.clone();
+                        let win_timer = win_timer.clone();
+                        let pid_timer = pid.clone();
+                        let lbl_timer = lbl.clone();
+                        let list_box_timer = list_box_mgmt_timer.clone();
+                        let nav_mgmt_t = nav_mgmt_timer.clone();
+                        let page_mgmt_t = page_mgmt_timer.clone();
+                        glib::timeout_add_local(Duration::from_millis(50), move || {
+                            match receiver.try_recv() {
+                                Ok(msg) => {
+                                    match msg {
+                                        TestMsg::Started(id) => {
+                                            if let Ok(mut guard) = pid_timer.lock() {
+                                                *guard = Some(id);
+                                            }
+                                            glib::ControlFlow::Continue
+                                        },
+                                        TestMsg::Log(line) => {
+                                            let short_log = if line.len() > 50 { format!("{}...", &line[..47]) } else { line };
+                                            lbl_timer.set_label(&short_log);
+                                            glib::ControlFlow::Continue
+                                        },
+                                        TestMsg::InstallFinished(result) => {
+                                            if let Ok(mut guard) = pid_timer.lock() {
+                                                *guard = None;
+                                            }
+                                            nav_timer.pop();
+                                            match result {
+                                                Ok(_) => {
+                                                    let mut child = list_box_timer.first_child();
+                                                    while let Some(widget) = child {
+                                                        let next = widget.next_sibling();
+                                                        list_box_timer.remove(&widget);
+                                                        child = next;
+                                                    }
+                                                    if let Ok(content) = fs::read_to_string(get_config_path()) {
+                                                        let trimmed = content.trim();
+                                                        if trimmed.starts_with('[') {
+                                                            let inner = &trimmed[1..trimmed.len()-1];
+                                                            let mut in_string = false;
+                                                            let mut current_strat = String::new();
+                                                            let mut strategies = Vec::new();
+                                                            for c in inner.chars() {
+                                                                if c == '"' {
+                                                                    in_string = !in_string;
+                                                                    if !in_string && !current_strat.is_empty() {
+                                                                        strategies.push(current_strat.clone());
+                                                                        current_strat.clear();
+                                                                    }
+                                                                } else if in_string {
+                                                                    if c != '\\' { 
+                                                                         current_strat.push(c); 
+                                                                    }
+                                                                }
+                                                            }
+                                                            for strat in strategies {
+                                                                let child_label = Label::builder()
+                                                                    .label(&strat)
+                                                                    .wrap(true)
+                                                                    .max_width_chars(50)
+                                                                    .xalign(0.0)
+                                                                    .build();
+                                                                let check = CheckButton::builder()
+                                                                    .child(&child_label)
+                                                                    .margin_top(10)
+                                                                    .margin_bottom(10)
+                                                                    .margin_start(10)
+                                                                    .margin_end(10)
+                                                                    .build();
+                                                                list_box_timer.append(&check);
+                                                            }
+                                                        }
+                                                    }
+                                                    nav_mgmt_t.replace(&[page_mgmt_t.clone()]);
+                                                },
+                                                Err(e) => {
+                                                    let dialog = adw::MessageDialog::builder()
+                                                        .transient_for(&win_timer)
+                                                        .heading(&t("Kurulum Hatası"))
+                                                        .body(&t("Install script hatası: {}").replace("{}", &e.to_string()))
+                                                        .build();
+                                                    dialog.add_response("ok", &t("Tamam"));
+                                                    dialog.present();
+                                                }
+                                            }
+                                            glib::ControlFlow::Break
+                                        },
+                                        _ => glib::ControlFlow::Continue,
+                                    }
+                                },
+                                Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+                                Err(mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
+                            }
+                        });
+                    },
+                    Err(e) => {
+                        let err = adw::MessageDialog::builder()
+                            .transient_for(&win_err)
+                            .heading(&t("Hata"))
+                            .body(&t("Hazır stratejiler kaydedilemedi: {}").replace("{}", &e.to_string()))
+                            .build();
+                        err.add_response("ok", &t("Tamam"));
+                        err.present();
+                    }
+                }
+            } else {
+                d.close();
+            }
+        });
+        dialog.present();
+    });
+
     let nav_view_clone_import_btn = nav_view.clone();
     let page_test_clone_import = page_test.clone();
     let lbl_test_clone_import = label_test_counter.clone();
+    let lbl_title_import = label_test_title.clone();
+    let lbl_info_import = label_test_info.clone();
     let pid_clone_import = current_pid.clone();
     let cf_clone_import = test_cancel_flag.clone();
     let nav_mgmt_import = nav_view_clone_mgmt.clone();
@@ -1405,6 +1636,8 @@ fn build_ui(app: &Application) {
         let nav = nav_view_clone_import_btn.clone();
         let page = page_test_clone_import.clone();
         let lbl = lbl_test_clone_import.clone();
+        let lbl_title = lbl_title_import.clone();
+        let lbl_info = lbl_info_import.clone();
         let pid = pid_clone_import.clone();
         let cf = cf_clone_import.clone();
         let list_box_mgmt_import_timer = list_mgmt_import.clone();
@@ -1416,8 +1649,10 @@ fn build_ui(app: &Application) {
                     match validate_and_copy_strategies(&path) {
                         Ok(_) => {
                             cf.store(false, Ordering::Relaxed);
+                            lbl_title.set_label(&t("Zapret Kuruluyor..."));
+                            lbl_info.set_label(&t("Zapret dosyaları ve yapılandırması hazırlanıyor.\nLütfen bekleyiniz."));
+                            lbl.set_label(&t("Kurulum hazırlanıyor..."));
                             nav.push(&page);
-                            lbl.set_label(&t("Zapret Kuruluyor (/opt/zapret)..."));
                             let (sender, receiver) = mpsc::channel();
                             let sender_thread = sender.clone();
                             let cf_thread = cf.clone();
@@ -1580,6 +1815,8 @@ fn build_ui(app: &Application) {
         let nav = nav_view_clone_for_test.clone();
         let page = page_test_clone.clone();
         let lbl = label_test_counter_clone.clone();
+        let lbl_title = label_test_title_clone.clone();
+        let lbl_info = label_test_info_clone.clone();
         let pid = current_pid.clone(); 
         let win = window_clone_msg.clone();
         let d_list = domains.clone();
@@ -1600,8 +1837,10 @@ fn build_ui(app: &Application) {
             cf.store(false, Ordering::Relaxed);
             let cf_thread = cf.clone();
             let cf_install = cf.clone();
-            nav.push(&page);
+            lbl_title.set_label(&t("Stratejiler aranıyor..."));
+            lbl_info.set_label(&t("Bu işlem internet hızınıza göre zaman alabilir.\nLütfen bekleyiniz."));
             lbl.set_label(&t("Denenen Stratejiler: 0"));
+            nav.push(&page);
             let (sender, receiver) = mpsc::channel();
             let d_vec = d_list.clone();
             let sender_blockcheck = sender.clone();
@@ -1612,6 +1851,8 @@ fn build_ui(app: &Application) {
             let pid_timer = pid.clone();
             let nav_timer = nav.clone();
             let lbl_timer = lbl.clone();
+            let lbl_title_timer = lbl_title.clone();
+            let lbl_info_timer = lbl_info.clone();
             let win_timer = win.clone();
             let list_box_mgmt_timer = list_mgmt.clone();
             let nav_mgmt_timer = nav_mgmt.clone();
@@ -1665,7 +1906,9 @@ fn build_ui(app: &Application) {
                                             nav_timer.pop();
                                             glib::ControlFlow::Break
                                         } else {
-                                            lbl_timer.set_label(&t("Zapret Kuruluyor (/opt/zapret)..."));
+                                            lbl_title_timer.set_label(&t("Zapret Kuruluyor..."));
+                                            lbl_info_timer.set_label(&t("Zapret dosyaları ve yapılandırması hazırlanıyor.\nLütfen bekleyiniz."));
+                                            lbl_timer.set_label(&t("Kurulum hazırlanıyor..."));
                                             let s = sender_install.clone();
                                             let c = cf_install.clone();
                                             thread::spawn(move || {
@@ -2032,6 +2275,7 @@ fn run_easy_install_script(sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<Atomi
         post_install_cmds.push_str("  dinitctl start zapret || true\n");
         post_install_cmds.push_str("fi\n");
     }
+    post_install_cmds.push_str(get_polkit_setup_script());
     let wrapper_content_fixed = format!(
         "#!/bin/sh\nexport ZAPRET_BASE=\"{}\"\n\"{}\" < \"{}\"\nexit_code=$?\nif [ $exit_code -eq 0 ]; then\n{}\nfi\nexit $exit_code\n", 
         zapret_base_str, 
@@ -2082,8 +2326,39 @@ fn run_easy_install_script(sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<Atomi
         }
     }
 }
+const DEFAULT_PRESET_STRATEGIES: &[&str] = &[
+    "--filter-tcp=80 --dpi-desync=fake,multisplit --dpi-desync-split-pos=method+2 --dpi-desync-fooling=md5sig --new --filter-tcp=443 --dpi-desync=fake --dpi-desync-ttl=2 --dpi-desync-fooling=md5sig --filter-udp=443 --dpi-desync=fake --dpi-desync-ttl=2",
+    "--dpi-desync=fake --dpi-desync-ttl=3 --dpi-desync-fooling=md5sig",
+    "--dpi-desync=split2 --dpi-desync-split-pos=1 --dpi-desync-fooling=md5sig",
+    "--filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=6 --new --filter-tcp=443 --dpi-desync=fake,disorder2 --dpi-desync-split-pos=1 --dpi-desync-ttl=3 --dpi-desync-fooling=md5sig",
+    "--dpi-desync=fake,split2 --dpi-desync-split-pos=method+2 --dpi-desync-fooling=md5sig",
+    "--filter-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=11 --dpi-desync-fooling=md5sig --dpi-desync-ttl=3"
+];
+
+fn apply_preset_strategies() -> io::Result<()> {
+    let strategies: Vec<String> = DEFAULT_PRESET_STRATEGIES.iter().map(|s| s.to_string()).collect();
+    save_strategies_to_json(&strategies)
+}
+
 fn save_strategies_to_json(strategies: &Vec<String>) -> io::Result<()> {
-    let mut file = fs::File::create(get_config_path())?;
+    let path = get_config_path();
+    let file_res = fs::File::create(&path);
+    let mut file = match file_res {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+            if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
+                let cfg_dir = proj_dirs.config_dir();
+                let _ = Command::new("pkexec")
+                    .arg("chmod")
+                    .arg("-R")
+                    .arg("777")
+                    .arg(cfg_dir)
+                    .output();
+            }
+            fs::File::create(&path)?
+        },
+        Err(e) => return Err(e),
+    };
     writeln!(file, "[")?;
     for (i, s) in strategies.iter().enumerate() {
         let escaped = s.replace("\"", "\\\"");
@@ -2097,15 +2372,20 @@ fn save_strategies_to_json(strategies: &Vec<String>) -> io::Result<()> {
     writeln!(file, "]")?;
     Ok(())
 }
-fn add_entry_row(container: &Box, grab_focus: bool) {
+fn add_entry_row(container: &Box, add_btn: &Button, grab_focus: bool) {
     let entry = Entry::builder()
-        .placeholder_text("Veri girin...")
+        .placeholder_text(&t("Alan adı girin..."))
         .build();
     let container_clone = container.clone();
+    let add_btn_clone = add_btn.clone();
     entry.connect_activate(move |_| {
-        add_entry_row(&container_clone, true);
+        add_entry_row(&container_clone, &add_btn_clone, true);
     });
+    if add_btn.parent().is_some() {
+        container.remove(add_btn);
+    }
     container.append(&entry);
+    container.append(add_btn);
     if grab_focus {
         entry.grab_focus();
     }
@@ -2180,7 +2460,6 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
     thread::spawn(move || {
         let _ = sender.send(AppMsg::Status("Sistem kontrol ediliyor...".to_string()));
         let mut root_commands = String::from("#!/bin/sh\nset -e\nexec 2>&1\nexec < /dev/null\n");
-        let mut needs_root_permission = false;
         let distro_id = get_distro_id();
         let zapret_full_path = get_zapret_path();
         let zapret_path_str = zapret_full_path.to_string_lossy().to_string();
@@ -2188,7 +2467,6 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
         if overwrite && zapret_full_path.exists() {
             root_commands.push_str("echo \"STATUS:CLEANING\"\n");
             root_commands.push_str(&format!("rm -rf \"{}\"\n", zapret_path_str));
-            needs_root_permission = true;
         }
         if cancel_flag_thread.load(Ordering::Relaxed) { return; }
         let binary_deps = vec!["git", "curl", "ipset", "iptables", "make", "gcc", "dig", "dnscrypt-proxy"];
@@ -2245,7 +2523,6 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
             for cmd in dep_install_commands {
                 root_commands.push_str(&format!("{}\n", cmd));
             }
-            if !needs_root_permission { needs_root_permission = true; }
         }
         if cancel_flag_thread.load(Ordering::Relaxed) { return; }
         root_commands.push_str("echo \"STATUS:CONFIGURING\"\n");
@@ -2253,7 +2530,6 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
         root_commands.push_str(&format!("if [ -f \"{}\" ]; then\n", config_file));
         root_commands.push_str(&format!("  sed -i \"40s/^listen_addresses = \\['127\\.0\\.0\\.1:53'\\]$/listen_addresses = ['127.0.0.1:53', '[::1]:53']/\" {}\n", config_file));
         root_commands.push_str("fi\n");
-        if !needs_root_permission { needs_root_permission = true; }
         if set_dns {
             root_commands.push_str("echo \"STATUS:SETTING_DNS\"\n");
             root_commands.push_str("if command -v nmcli >/dev/null 2>&1; then\n");
@@ -2263,7 +2539,6 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
             root_commands.push_str("    nmcli connection modify \"$ACTIVE_CON\" ipv4.ignore-auto-dns yes\n");
             root_commands.push_str("  fi\n");
             root_commands.push_str("fi\n");
-             if !needs_root_permission { needs_root_permission = true; }
         }
         {
             root_commands.push_str("echo \"STATUS:FINALIZING\"\n");
@@ -2294,10 +2569,11 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                 root_commands.push_str("systemctl enable dnscrypt-proxy.service\n");
                 root_commands.push_str("systemctl start dnscrypt-proxy.service\n");
             }
-            if !needs_root_permission { needs_root_permission = true; }
         }
+        root_commands.push_str("echo \"STATUS:POLKIT_SETUP\"\n");
+        root_commands.push_str(get_polkit_setup_script());
         if cancel_flag_thread.load(Ordering::Relaxed) { return; }
-        if needs_root_permission {
+        {
             let _ = sender.send(AppMsg::Status(t("Yetki onayı bekleniyor...")));
             let script_path = "/tmp/zapret_installer_job.sh";
             if let Ok(mut file) = fs::File::create(script_path) {
@@ -2501,6 +2777,110 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
         }
     });
 }
+fn ensure_polkit_rules_installed() {
+    let rule_file = Path::new("/etc/polkit-1/rules.d/90-zapret-gtk.rules");
+    let pkla_file = Path::new("/etc/polkit-1/localauthority/50-local.d/90-zapret-gtk.pkla");
+    let mut needs_install = !rule_file.exists() && !pkla_file.exists();
+    if rule_file.exists() {
+        if let Ok(content) = fs::read_to_string(rule_file) {
+            if !content.contains("env") {
+                needs_install = true;
+            }
+        }
+    }
+    if !needs_install {
+        return;
+    }
+    log_to_file("Polkit rules not found or outdated. Installing one-time authorization rule on startup...");
+    let script = get_polkit_setup_script();
+    let temp_script = "/tmp/zapret_polkit_init.sh";
+    if let Ok(mut f) = fs::File::create(temp_script) {
+        let _ = f.write_all(format!("#!/bin/sh\nset -e\n{}\nrm -f \"{}\"\n", script, temp_script).as_bytes());
+        let _ = Command::new("chmod").arg("+x").arg(temp_script).output();
+        let _ = Command::new("pkexec")
+            .arg("/bin/sh")
+            .arg(temp_script)
+            .output();
+    }
+}
+
+fn get_polkit_setup_script() -> &'static str {
+    r#"mkdir -p /etc/polkit-1/rules.d 2>/dev/null || true
+cat << 'EOF' > /etc/polkit-1/rules.d/90-zapret-gtk.rules
+/* Zapret-GTK Polkit Rule */
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec") {
+        var prog = action.lookup("program");
+        if (prog && (
+            prog.indexOf("/opt/zapret") === 0 ||
+            prog.indexOf("/tmp/zapret") === 0 ||
+            prog.indexOf("zapret") !== -1 ||
+            prog == "/bin/sh" ||
+            prog == "/usr/bin/sh" ||
+            prog == "/bin/bash" ||
+            prog == "/usr/bin/bash" ||
+            prog == "/bin/env" ||
+            prog == "/usr/bin/env" ||
+            prog == "/usr/bin/systemctl" ||
+            prog == "/bin/systemctl" ||
+            prog == "/usr/bin/rc-service" ||
+            prog == "/sbin/rc-service" ||
+            prog == "/usr/sbin/rc-service" ||
+            prog == "/usr/bin/sv" ||
+            prog == "/bin/sv" ||
+            prog == "/sbin/sv" ||
+            prog == "/usr/sbin/sv" ||
+            prog == "/usr/bin/service" ||
+            prog == "/sbin/service" ||
+            prog == "/usr/sbin/service" ||
+            prog == "/usr/bin/dinitctl" ||
+            prog == "/sbin/dinitctl" ||
+            prog == "/usr/sbin/dinitctl" ||
+            prog == "/bin/kill" ||
+            prog == "/usr/bin/kill" ||
+            prog == "/bin/cat" ||
+            prog == "/usr/bin/cat" ||
+            prog == "/bin/rm" ||
+            prog == "/usr/bin/rm" ||
+            prog == "/bin/chmod" ||
+            prog == "/usr/bin/chmod" ||
+            prog == "/bin/chown" ||
+            prog == "/usr/bin/chown" ||
+            prog == "/bin/mv" ||
+            prog == "/usr/bin/mv" ||
+            prog == "/bin/cp" ||
+            prog == "/usr/bin/cp" ||
+            prog == "/bin/mkdir" ||
+            prog == "/usr/bin/mkdir"
+        )) {
+            return polkit.Result.YES;
+        }
+    }
+});
+EOF
+chmod 644 /etc/polkit-1/rules.d/90-zapret-gtk.rules 2>/dev/null || true
+if [ -d "/etc/polkit-1/localauthority/50-local.d" ]; then
+cat << 'EOF' > /etc/polkit-1/localauthority/50-local.d/90-zapret-gtk.pkla
+[Zapret GTK Permissions]
+Identity=unix-user:*
+Action=org.freedesktop.policykit.exec
+ResultAny=yes
+ResultInactive=yes
+ResultActive=yes
+EOF
+fi
+if [ -n "$PKEXEC_UID" ]; then
+    U_HOME=$(getent passwd "$PKEXEC_UID" | cut -d: -f6)
+    U_NAME=$(getent passwd "$PKEXEC_UID" | cut -d: -f1)
+    if [ -n "$U_HOME" ] && [ -d "$U_HOME/.config/zapret-gtk" ]; then
+        chown -R "$U_NAME:$U_NAME" "$U_HOME/.config/zapret-gtk" 2>/dev/null || true
+        chmod -R 777 "$U_HOME/.config/zapret-gtk" 2>/dev/null || true
+    fi
+fi
+chmod -R 777 /home/*/.config/zapret-gtk 2>/dev/null || true
+"#
+}
+
 fn get_init_system() -> String {
     if Path::new("/run/systemd/system").exists() {
         return "systemd".to_string();

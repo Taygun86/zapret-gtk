@@ -276,8 +276,8 @@ msgstr "Warning"
 msgid "Uygula"
 msgstr "Apply"
 
-msgid "Veri girin..."
-msgstr "Enter data..."
+msgid "Alan adı girin..."
+msgstr "Enter domain..."
 
 msgid "Ayarlar"
 msgstr "Settings"
@@ -335,3 +335,33 @@ msgstr "Yes"
 
 msgid "Cloudflare DNS ayarlanıyor..."
 msgstr "Configuring Cloudflare DNS..."
+
+msgid "Hazır Stratejileri Yükle (Hızlı Kurulum)"
+msgstr "Load Preset Strategies (Quick Setup)"
+
+msgid "Hazır Stratejileri Yükle"
+msgstr "Load Preset Strategies"
+
+msgid "Bu stratejiler çoğu durumda çalışır ancak her internet servis sağlayıcısında veya ağda çalışmayabilir.\n\nYine de devam edip kurmak istiyor musunuz?"
+msgstr "These strategies work in most cases, but may not work on every ISP or network.\n\nDo you still want to proceed and install?"
+
+msgid "Evet, Devam Et"
+msgstr "Yes, Continue"
+
+msgid "Hazır stratejiler kaydedilemedi: {}"
+msgstr "Failed to save preset strategies: {}"
+
+msgid "Vazgeç"
+msgstr "Cancel"
+
+msgid "Zapret Kuruluyor..."
+msgstr "Installing Zapret..."
+
+msgid "Zapret dosyaları ve yapılandırması hazırlanıyor.\nLütfen bekleyiniz."
+msgstr "Preparing Zapret files and configuration.\nPlease wait."
+
+msgid "Kurulum hazırlanıyor..."
+msgstr "Preparing installation..."
+
+
+
