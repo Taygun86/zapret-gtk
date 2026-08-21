@@ -35,16 +35,371 @@ fn t(s: &str) -> String {
     }
     s.to_string()
 }
-fn get_config_path() -> PathBuf {
+#[derive(Clone, Debug)]
+struct ProfileStrategy {
+    strategy: String,
+    active: bool,
+}
+
+fn get_profile_path(profile_id: usize) -> PathBuf {
     if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
         let config_dir = proj_dirs.config_dir();
         if !config_dir.exists() {
             let _ = fs::create_dir_all(config_dir);
         }
-        config_dir.join("strategies.json")
+        if profile_id == 1 {
+            config_dir.join("strategies.json")
+        } else {
+            config_dir.join(format!("strategies_{}.json", profile_id))
+        }
     } else {
-        PathBuf::from("strategies.json")
+        if profile_id == 1 {
+            PathBuf::from("strategies.json")
+        } else {
+            PathBuf::from(format!("strategies_{}.json", profile_id))
+        }
     }
+}
+
+fn get_active_profile_path() -> PathBuf {
+    if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
+        let config_dir = proj_dirs.config_dir();
+        if !config_dir.exists() {
+            let _ = fs::create_dir_all(config_dir);
+        }
+        config_dir.join("active_profile.txt")
+    } else {
+        PathBuf::from("active_profile.txt")
+    }
+}
+
+fn get_active_profile_id() -> usize {
+    let path = get_active_profile_path();
+    if let Ok(content) = fs::read_to_string(&path) {
+        if let Ok(id) = content.trim().parse::<usize>() {
+            if (1..=10).contains(&id) {
+                return id;
+            }
+        }
+    }
+    1
+}
+
+fn save_active_profile_id(id: usize) {
+    let path = get_active_profile_path();
+    let _ = fs::write(path, id.to_string());
+}
+
+fn parse_strategies_from_content(content: &str) -> Vec<ProfileStrategy> {
+    let trimmed = content.trim();
+    if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
+        return Vec::new();
+    }
+    let inner = &trimmed[1..trimmed.len()-1].trim();
+    if inner.is_empty() {
+        return Vec::new();
+    }
+
+    let config_content = fs::read_to_string("/opt/zapret/config").unwrap_or_default();
+    let mut results = Vec::new();
+
+    if inner.contains("\"strategy\"") {
+        let chars: Vec<char> = inner.chars().collect();
+        let mut pos = 0;
+        while pos < chars.len() {
+            if let Some(start_obj) = chars[pos..].iter().position(|&c| c == '{') {
+                let obj_start = pos + start_obj;
+                if let Some(end_obj) = chars[obj_start..].iter().position(|&c| c == '}') {
+                    let obj_end = obj_start + end_obj;
+                    let obj_str: String = chars[obj_start..=obj_end].iter().collect();
+                    let mut strat_val = String::new();
+                    let mut is_active = true;
+                    if let Some(s_pos) = obj_str.find("\"strategy\"") {
+                        if let Some(colon_pos) = obj_str[s_pos..].find(':') {
+                            let rest = &obj_str[s_pos + colon_pos + 1..];
+                            if let Some(first_q) = rest.find('"') {
+                                let val_start = first_q + 1;
+                                let mut val_end = val_start;
+                                let val_chars: Vec<char> = rest.chars().collect();
+                                while val_end < val_chars.len() {
+                                    if val_chars[val_end] == '"' && (val_end == 0 || val_chars[val_end - 1] != '\\') {
+                                        break;
+                                    }
+                                    val_end += 1;
+                                }
+                                strat_val = val_chars[val_start..val_end].iter().collect();
+                                strat_val = strat_val.replace("\\\"", "\"");
+                            }
+                        }
+                    }
+                    if let Some(a_pos) = obj_str.find("\"active\"") {
+                        if let Some(colon_pos) = obj_str[a_pos..].find(':') {
+                            let rest = obj_str[a_pos + colon_pos + 1..].trim();
+                            if rest.starts_with("false") {
+                                is_active = false;
+                            } else if rest.starts_with("true") {
+                                is_active = true;
+                            }
+                        }
+                    }
+                    if !strat_val.is_empty() {
+                        let zapret_base_str = get_zapret_path().to_string_lossy().to_string();
+                        let mut fixed_strat = strat_val.replace(&zapret_base_str, "/opt/zapret");
+                        if let Some(start) = fixed_strat.find("/home/") {
+                            if let Some(end) = fixed_strat[start..].find("/zapret/") {
+                                let old_path = &fixed_strat[start..start + end + 7];
+                                fixed_strat = fixed_strat.replace(old_path, "/opt/zapret");
+                            }
+                        }
+                        results.push(ProfileStrategy {
+                            strategy: fixed_strat,
+                            active: is_active,
+                        });
+                    }
+                    pos = obj_end + 1;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    if results.is_empty() {
+        let mut in_string = false;
+        let mut current_strat = String::new();
+        let mut is_escaped = false;
+        for c in inner.chars() {
+            if c == '\\' && !is_escaped {
+                is_escaped = true;
+                continue;
+            }
+            if c == '"' && !is_escaped {
+                in_string = !in_string;
+                if !in_string && !current_strat.is_empty() {
+                    let zapret_base_str = get_zapret_path().to_string_lossy().to_string();
+                    let mut fixed_strat = current_strat.replace(&zapret_base_str, "/opt/zapret");
+                    if let Some(start) = fixed_strat.find("/home/") {
+                        if let Some(end) = fixed_strat[start..].find("/zapret/") {
+                            let old_path = &fixed_strat[start..start + end + 7];
+                            fixed_strat = fixed_strat.replace(old_path, "/opt/zapret");
+                        }
+                    }
+                    let is_active = !config_content.is_empty() && config_content.contains(&fixed_strat);
+                    results.push(ProfileStrategy {
+                        strategy: fixed_strat,
+                        active: is_active,
+                    });
+                    current_strat.clear();
+                }
+            } else if in_string {
+                current_strat.push(c);
+            }
+            is_escaped = false;
+        }
+    }
+
+    results
+}
+
+fn load_profile_strategies(profile_id: usize) -> Vec<ProfileStrategy> {
+    let path = get_profile_path(profile_id);
+    let content = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    parse_strategies_from_content(&content)
+}
+
+fn populate_strategies_box(list_box: &ListBox, strategies: &[ProfileStrategy]) {
+    while let Some(child) = list_box.first_child() {
+        list_box.remove(&child);
+    }
+    for item in strategies {
+        let child_label = Label::builder()
+            .label(&item.strategy)
+            .wrap(true)
+            .max_width_chars(50)
+            .xalign(0.0)
+            .build();
+        let check = CheckButton::builder()
+            .child(&child_label)
+            .active(item.active)
+            .margin_top(10)
+            .margin_bottom(10)
+            .margin_start(10)
+            .margin_end(10)
+            .build();
+        list_box.append(&check);
+    }
+}
+
+fn save_profile_strategies(profile_id: usize, strategies: &[ProfileStrategy]) -> io::Result<()> {
+    let path = get_profile_path(profile_id);
+    let file_res = fs::File::create(&path);
+    let mut file = match file_res {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+            if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
+                let cfg_dir = proj_dirs.config_dir();
+                let _ = Command::new("pkexec")
+                    .arg("chmod")
+                    .arg("-R")
+                    .arg("777")
+                    .arg(cfg_dir)
+                    .output();
+            }
+            fs::File::create(&path)?
+        },
+        Err(e) => return Err(e),
+    };
+    writeln!(file, "[")?;
+    for (i, s) in strategies.iter().enumerate() {
+        let escaped = s.strategy.replace("\"", "\\\"");
+        let comma = if i + 1 < strategies.len() { "," } else { "" };
+        writeln!(file, "  {{\n    \"strategy\": \"{}\",\n    \"active\": {}\n  }}{}", escaped, s.active, comma)?;
+    }
+    writeln!(file, "]")?;
+    Ok(())
+}
+
+fn get_config_path() -> PathBuf {
+    get_profile_path(get_active_profile_id())
+}
+
+fn is_profile_non_empty(profile_id: usize) -> bool {
+    let strats = load_profile_strategies(profile_id);
+    !strats.is_empty()
+}
+
+fn is_strategies_json_non_empty() -> bool {
+    is_profile_non_empty(get_active_profile_id())
+}
+
+fn get_profile_hostlist_path(profile_id: usize) -> PathBuf {
+    if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
+        let config_dir = proj_dirs.config_dir();
+        if !config_dir.exists() {
+            let _ = fs::create_dir_all(config_dir);
+        }
+        config_dir.join(format!("hostlist_{}.txt", profile_id))
+    } else {
+        PathBuf::from(format!("hostlist_{}.txt", profile_id))
+    }
+}
+
+fn load_profile_hostlist(profile_id: usize) -> Vec<String> {
+    let path = get_profile_hostlist_path(profile_id);
+    if let Ok(content) = fs::read_to_string(&path) {
+        return content.lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect();
+    }
+    Vec::new()
+}
+
+fn save_profile_hostlist(profile_id: usize, domains: &[String]) -> io::Result<()> {
+    let path = get_profile_hostlist_path(profile_id);
+    let mut content = String::new();
+    for d in domains {
+        let trimmed = d.trim();
+        if !trimmed.is_empty() {
+            content.push_str(trimmed);
+            content.push('\n');
+        }
+    }
+    fs::write(path, content)
+}
+
+fn update_config_mode_filter(content: &str, mode: &str) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    let mut found = false;
+    for line in content.lines() {
+        if line.starts_with("MODE_FILTER=") {
+            lines.push(format!("MODE_FILTER={}", mode));
+            found = true;
+        } else {
+            lines.push(line.to_string());
+        }
+    }
+    if !found {
+        lines.push(format!("MODE_FILTER={}", mode));
+    }
+    lines.join("\n") + "\n"
+}
+
+fn extract_nfqws_opt(content: &str) -> Option<String> {
+    let var_name = "NFQWS_OPT=\"";
+    if let Some(start_idx) = content.find(var_name) {
+        let content_after_start = &content[start_idx + var_name.len()..];
+        let mut end_offset = 0;
+        let mut escaped = false;
+        let mut found = false;
+        for (i, c) in content_after_start.char_indices() {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                end_offset = i;
+                found = true;
+                break;
+            }
+        }
+        if found {
+            return Some(content_after_start[..end_offset].to_string());
+        }
+    }
+    None
+}
+
+fn apply_profile_hostlist_to_zapret(profile_id: usize) -> io::Result<()> {
+    let domains = load_profile_hostlist(profile_id);
+    let temp_hosts = "/tmp/zapret_hosts_user_new.txt";
+    let temp_cfg = "/tmp/zapret_config_new.txt";
+    
+    let mut hosts_content = String::new();
+    for d in &domains {
+        hosts_content.push_str(d);
+        hosts_content.push('\n');
+    }
+    fs::write(temp_hosts, &hosts_content)?;
+
+    let mode_filter = if domains.is_empty() { "none" } else { "hostlist" };
+    let config_path = Path::new("/opt/zapret/config");
+    let content_res = fs::read_to_string(config_path).or_else(|_| {
+        let out = Command::new("pkexec").arg("cat").arg("/opt/zapret/config").output();
+        match out {
+            Ok(o) if o.status.success() => Ok(String::from_utf8_lossy(&o.stdout).to_string()),
+            _ => Err(io::Error::new(io::ErrorKind::PermissionDenied, "Dosya okunamadı")),
+        }
+    });
+
+    if let Ok(content) = content_res {
+        let mut new_content = update_config_mode_filter(&content, mode_filter);
+        if let Some(opt_val) = extract_nfqws_opt(&new_content) {
+            let formatted_opt = format_strategy_with_hostlist(&opt_val);
+            new_content = update_config_content(&new_content, &formatted_opt);
+        }
+        fs::write(temp_cfg, &new_content)?;
+        let init = get_init_system();
+        let restart_cmd = if init == "openrc" {
+            "rc-service zapret restart"
+        } else if init == "runit" {
+            "sv restart zapret"
+        } else if init == "sysvinit" {
+            "service zapret restart"
+        } else if init == "dinit" {
+            "dinitctl restart zapret"
+        } else {
+            "systemctl restart zapret"
+        };
+        let cmd = format!("mv -f {} /opt/zapret/ipset/zapret-hosts-user.txt && mv -f {} /opt/zapret/config && {}", temp_hosts, temp_cfg, restart_cmd);
+        let _ = Command::new("pkexec").arg("sh").arg("-c").arg(cmd).output();
+    }
+    Ok(())
 }
 
 fn get_log_path() -> PathBuf {
@@ -351,6 +706,7 @@ fn build_ui(app: &Application) {
     let preset_button = Button::builder()
         .child(&preset_btn_content)
         .css_classes(vec!["pill"])
+        .halign(gtk::Align::Center)
         .margin_start(10)
         .margin_end(10)
         .margin_top(5)
@@ -404,6 +760,211 @@ fn build_ui(app: &Application) {
         .title(&t("Zapret GTK"))
         .tag("settings_page")
         .build();
+
+    let content_box_rescan = Box::new(Orientation::Vertical, 0);
+    let header_rescan = HeaderBar::builder()
+        .show_back_button(true)
+        .build();
+    let top_box_rescan = Box::new(Orientation::Vertical, 0);
+    top_box_rescan.set_vexpand(true);
+    let info_label_rescan = Label::builder()
+        .label(&t("Erişemediğiniz web sitelerinin alan adlarını, her satıra bir tane gelecek şekilde yazın. Başlarına 'https://' ve 'www.' eklemeyin. Örnek: (a.com), (b.net)"))
+        .margin_top(15)
+        .margin_bottom(10)
+        .wrap(true)
+        .max_width_chars(40)
+        .justify(gtk::Justification::Center)
+        .build();
+    top_box_rescan.append(&info_label_rescan);
+    let scrolled_window_rescan = ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .min_content_height(150)
+        .vexpand(true)
+        .margin_start(10)
+        .margin_end(10)
+        .margin_bottom(10)
+        .build();
+    let entries_container_rescan = Box::new(Orientation::Vertical, 10);
+    entries_container_rescan.set_margin_top(10);
+    entries_container_rescan.set_margin_bottom(10);
+    entries_container_rescan.set_margin_start(10);
+    entries_container_rescan.set_margin_end(10);
+    scrolled_window_rescan.set_child(Some(&entries_container_rescan));
+    top_box_rescan.append(&scrolled_window_rescan);
+    content_box_rescan.append(&top_box_rescan);
+
+    let bottom_box_rescan = Box::new(Orientation::Vertical, 0);
+    bottom_box_rescan.set_margin_start(10);
+    bottom_box_rescan.set_margin_end(10);
+    bottom_box_rescan.set_margin_bottom(15);
+
+    let finish_button_rescan = Button::builder()
+        .label(&t("Strateji aramasını başlat."))
+        .css_classes(vec!["suggested-action", "pill"])
+        .halign(gtk::Align::Center)
+        .margin_top(5)
+        .margin_bottom(5)
+        .build();
+    bottom_box_rescan.append(&finish_button_rescan);
+    content_box_rescan.append(&bottom_box_rescan);
+
+    let add_button_rescan = Button::builder()
+        .icon_name("list-add-symbolic")
+        .tooltip_text(&t("Yeni satır ekle"))
+        .css_classes(vec!["flat", "circular"])
+        .halign(gtk::Align::Center)
+        .margin_top(5)
+        .margin_bottom(5)
+        .build();
+    let entries_container_rescan_clone = entries_container_rescan.clone();
+    let add_button_rescan_clone = add_button_rescan.clone();
+    add_button_rescan.connect_clicked(move |_| {
+        add_entry_row(&entries_container_rescan_clone, &add_button_rescan_clone, true);
+    });
+    add_entry_row(&entries_container_rescan, &add_button_rescan, false);
+
+    let view_rescan = ToolbarView::builder()
+        .content(&content_box_rescan)
+        .build();
+    view_rescan.add_top_bar(&header_rescan);
+    let page_rescan = NavigationPage::builder()
+        .child(&view_rescan)
+        .title(&t("Zapret GTK"))
+        .tag("rescan_page")
+        .build();
+
+    let content_box_rescan_check = Box::new(Orientation::Vertical, 0);
+    content_box_rescan_check.set_valign(gtk::Align::Center);
+    content_box_rescan_check.set_vexpand(true);
+    let header_rescan_check = HeaderBar::builder()
+        .show_back_button(true)
+        .build();
+    let spinner_rescan_check = Spinner::builder()
+        .spinning(true)
+        .width_request(64)
+        .height_request(64)
+        .margin_bottom(20)
+        .build();
+    content_box_rescan_check.append(&spinner_rescan_check);
+    let status_label_rescan_check = Label::builder()
+        .label(&t("Sistem ve VPN çakışmaları taranıyor..."))
+        .css_classes(vec!["title-2"])
+        .margin_bottom(10)
+        .wrap(true)
+        .max_width_chars(30)
+        .build();
+    content_box_rescan_check.append(&status_label_rescan_check);
+    let conflict_list_label_rescan = Label::builder()
+        .label("")
+        .margin_bottom(20)
+        .wrap(true)
+        .max_width_chars(40)
+        .build();
+    content_box_rescan_check.append(&conflict_list_label_rescan);
+
+    let rescan_check_actions_box = Box::new(Orientation::Vertical, 10);
+    rescan_check_actions_box.set_margin_start(50);
+    rescan_check_actions_box.set_margin_end(50);
+
+    let stop_continue_btn_rescan = Button::builder()
+        .label(&t("Durdur ve Devam Et"))
+        .visible(false)
+        .css_classes(vec!["suggested-action", "pill"])
+        .build();
+    let force_continue_btn_rescan = Button::builder()
+        .label(&t("Yine de Devam Et"))
+        .visible(false)
+        .css_classes(vec!["destructive-action", "pill"])
+        .build();
+
+    rescan_check_actions_box.append(&stop_continue_btn_rescan);
+    rescan_check_actions_box.append(&force_continue_btn_rescan);
+    content_box_rescan_check.append(&rescan_check_actions_box);
+    let view_rescan_check = ToolbarView::builder()
+        .content(&content_box_rescan_check)
+        .build();
+    view_rescan_check.add_top_bar(&header_rescan_check);
+    let page_rescan_check = NavigationPage::builder()
+        .child(&view_rescan_check)
+        .title(&t("Zapret GTK"))
+        .tag("rescan_check_page")
+        .build();
+
+    let content_box_hostlist = Box::new(Orientation::Vertical, 0);
+    let header_hostlist = HeaderBar::builder()
+        .show_back_button(true)
+        .build();
+    let view_hostlist = ToolbarView::builder()
+        .content(&content_box_hostlist)
+        .build();
+    view_hostlist.add_top_bar(&header_hostlist);
+
+    let page_hostlist = NavigationPage::builder()
+        .child(&view_hostlist)
+        .title(&t("Hostlist"))
+        .tag("hostlist_page")
+        .build();
+
+    let top_box_hostlist = Box::new(Orientation::Vertical, 0);
+    top_box_hostlist.set_vexpand(true);
+
+    let hostlist_info_label = Label::builder()
+        .label(&t("Zapret'in yalnızca belirli web sitelerinde çalışmasını istiyorsanız, bu sitelerin alan adlarını her satıra bir tane gelecek şekilde yazın. Boş bırakırsanız filtreleme tüm sitelere uygulanır."))
+        .margin_top(15)
+        .margin_bottom(10)
+        .margin_start(20)
+        .margin_end(20)
+        .wrap(true)
+        .max_width_chars(42)
+        .justify(gtk::Justification::Center)
+        .build();
+    top_box_hostlist.append(&hostlist_info_label);
+
+    let scrolled_hostlist = ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .min_content_height(180)
+        .vexpand(true)
+        .margin_start(10)
+        .margin_end(10)
+        .margin_bottom(10)
+        .build();
+
+    let entries_container_hostlist = Box::new(Orientation::Vertical, 10);
+    entries_container_hostlist.set_margin_top(10);
+    entries_container_hostlist.set_margin_bottom(10);
+    entries_container_hostlist.set_margin_start(10);
+    entries_container_hostlist.set_margin_end(10);
+    scrolled_hostlist.set_child(Some(&entries_container_hostlist));
+    top_box_hostlist.append(&scrolled_hostlist);
+    content_box_hostlist.append(&top_box_hostlist);
+
+    let add_button_hostlist = Button::builder()
+        .icon_name("list-add-symbolic")
+        .tooltip_text(&t("Yeni satır ekle"))
+        .css_classes(vec!["flat", "circular"])
+        .halign(gtk::Align::Center)
+        .margin_top(5)
+        .margin_bottom(5)
+        .build();
+    let entries_container_hostlist_c = entries_container_hostlist.clone();
+    let add_button_hostlist_c = add_button_hostlist.clone();
+    add_button_hostlist.connect_clicked(move |_| {
+        add_entry_row(&entries_container_hostlist_c, &add_button_hostlist_c, true);
+    });
+
+    let bottom_box_hostlist = Box::new(Orientation::Vertical, 0);
+    bottom_box_hostlist.set_margin_start(10);
+    bottom_box_hostlist.set_margin_end(10);
+    bottom_box_hostlist.set_margin_bottom(20);
+    bottom_box_hostlist.set_halign(gtk::Align::Center);
+
+    let save_hostlist_btn = Button::builder()
+        .label(&t("Kaydet ve Uygula"))
+        .css_classes(vec!["suggested-action", "pill"])
+        .width_request(160)
+        .build();
+    bottom_box_hostlist.append(&save_hostlist_btn);
+    content_box_hostlist.append(&bottom_box_hostlist);
     let content_box_mgmt = Box::new(Orientation::Vertical, 0);
     let header_mgmt = HeaderBar::builder()
         .show_back_button(false)
@@ -448,6 +1009,33 @@ fn build_ui(app: &Application) {
     bottom_box_mgmt.set_margin_bottom(20);
     bottom_box_mgmt.set_margin_start(20);
     bottom_box_mgmt.set_margin_end(20);
+    let profile_buttons_box = Box::new(Orientation::Horizontal, 0);
+    profile_buttons_box.set_halign(gtk::Align::Center);
+    profile_buttons_box.add_css_class("linked");
+    profile_buttons_box.set_margin_top(6);
+    profile_buttons_box.set_margin_bottom(12);
+
+    let current_profile_id = Rc::new(Cell::new(get_active_profile_id()));
+    let mut profile_buttons = Vec::new();
+    let initial_profile_id = current_profile_id.get();
+
+    for id in 1..=10 {
+        let btn = Button::builder()
+            .label(&id.to_string())
+            .css_classes(if id == initial_profile_id {
+                vec!["suggested-action"]
+            } else {
+                vec![]
+            })
+            .width_request(34)
+            .height_request(32)
+            .tooltip_text(&format!("{} {}", t("Profil"), id))
+            .build();
+        profile_buttons_box.append(&btn);
+        profile_buttons.push(btn);
+    }
+    bottom_box_mgmt.append(&profile_buttons_box);
+
     let mgmt_buttons_box = Box::new(Orientation::Horizontal, 10);
     mgmt_buttons_box.set_halign(gtk::Align::Center);
     let about_btn = Button::builder()
@@ -507,7 +1095,7 @@ fn build_ui(app: &Application) {
         .max_width_chars(40)
         .build();
     status_row.append(&status_label_mgmt);
-    let service_buttons_box = Box::new(Orientation::Horizontal, 10);
+    let service_buttons_box = Box::new(Orientation::Horizontal, 8);
     let start_service_btn = Button::builder()
         .icon_name("media-playback-start-symbolic")
         .label(&t("Başlat"))
@@ -518,8 +1106,14 @@ fn build_ui(app: &Application) {
         .label(&t("Durdur"))
         .visible(false)
         .build();
+    let update_service_btn = Button::builder()
+        .icon_name("view-refresh-symbolic")
+        .label(&t("Güncelle"))
+        .visible(false)
+        .build();
     service_buttons_box.append(&start_service_btn);
     service_buttons_box.append(&stop_service_btn);
+    service_buttons_box.append(&update_service_btn);
     status_row.append(&service_buttons_box);
     status_box.append(&status_row);
     content_box_status.append(&status_box);
@@ -555,6 +1149,24 @@ fn build_ui(app: &Application) {
         .build();
     buttons_row.append(&export_button);
     export_box.append(&buttons_row);
+
+    let preset_status_btn_content = Box::new(Orientation::Horizontal, 8);
+    preset_status_btn_content.set_halign(gtk::Align::Center);
+    let preset_status_icon = gtk::Image::from_icon_name("starred-symbolic");
+    let preset_status_lbl = Label::new(Some(&t("Hazır Stratejileri Yükle (Hızlı Kurulum)")));
+    preset_status_btn_content.append(&preset_status_icon);
+    preset_status_btn_content.append(&preset_status_lbl);
+
+    let preset_status_button = Button::builder()
+        .child(&preset_status_btn_content)
+        .css_classes(vec!["pill"])
+        .halign(gtk::Align::Center)
+        .margin_start(10)
+        .margin_end(10)
+        .margin_top(10)
+        .margin_bottom(5)
+        .build();
+    export_box.append(&preset_status_button);
 
     let folder_buttons_row = Box::new(Orientation::Horizontal, 20);
     folder_buttons_row.set_halign(gtk::Align::Center);
@@ -630,24 +1242,48 @@ fn build_ui(app: &Application) {
 
     content_box_status.append(&export_box);
 
-    let delete_box = Box::new(Orientation::Vertical, 10);
-    delete_box.set_margin_top(20);
-    delete_box.set_margin_bottom(20);
-    delete_box.set_halign(gtk::Align::Center);
-    
+    let bottom_actions_box = Box::new(Orientation::Horizontal, 10);
+    bottom_actions_box.set_margin_top(20);
+    bottom_actions_box.set_margin_bottom(20);
+    bottom_actions_box.set_halign(gtk::Align::Center);
+
+    let hostlist_btn = Button::builder()
+        .label(&t("Hostlist"))
+        .css_classes(vec!["pill"])
+        .width_request(110)
+        .build();
+
+    let search_strat_settings_btn = Button::builder()
+        .label(&t("Strateji Ara"))
+        .css_classes(vec!["pill"])
+        .width_request(110)
+        .build();
+
+    if is_strategies_json_non_empty() {
+        search_strat_settings_btn.add_css_class("warning");
+    }
+
     let delete_btn = Button::builder()
         .label(&t("Zapret'i Sil"))
         .css_classes(vec!["destructive-action", "pill"])
+        .width_request(110)
         .build();
-    delete_box.append(&delete_btn);
-    content_box_status.append(&delete_box);
-    
 
+    bottom_actions_box.append(&hostlist_btn);
+    bottom_actions_box.append(&search_strat_settings_btn);
+    bottom_actions_box.append(&delete_btn);
+    content_box_status.append(&bottom_actions_box);
 
-
+    let has_update_status = Rc::new(Cell::new(None::<bool>));
+    let has_update_timer = has_update_status.clone();
     let status_label_mgmt_timer = status_label_mgmt.clone();
     let start_btn_timer = start_service_btn.clone();
     let stop_btn_timer = stop_service_btn.clone();
+    let update_btn_timer = update_service_btn.clone();
+
+    let (upd_check_sender, upd_check_receiver) = mpsc::channel::<Option<bool>>();
+    let upd_check_sender_timer = upd_check_sender.clone();
+
     glib::timeout_add_local(Duration::from_secs(10), move || {
         let init_sys = get_init_system();
         let mut is_active = false;
@@ -680,7 +1316,7 @@ fn build_ui(app: &Application) {
             if let Ok(o) = Command::new("service").arg("zapret").arg("status").output() {
                 let out = String::from_utf8_lossy(&o.stdout).trim().to_string();
                 if out.contains("is running") || o.status.success() {
-                    is_active = true;
+                    is_active = true; 
                     status_text = "active".to_string();
                 } else {
                     status_text = "stopped".to_string();
@@ -690,21 +1326,47 @@ fn build_ui(app: &Application) {
             if let Ok(o) = Command::new("dinitctl").arg("status").arg("zapret").output() {
                 let out = String::from_utf8_lossy(&o.stdout).trim().to_string();
                 if out.contains("State: STARTED") {
-                    is_active = true;
+                    is_active = true; 
                     status_text = "active".to_string();
                 } else {
                     status_text = "stopped".to_string();
                 }
             }
         }
+
+        let s_check = upd_check_sender_timer.clone();
+        thread::spawn(move || {
+            let upd = check_zapret_update_available();
+            let _ = s_check.send(upd);
+        });
+
+        while let Ok(upd) = upd_check_receiver.try_recv() {
+            has_update_timer.set(upd);
+            if upd == Some(true) {
+                update_btn_timer.set_visible(true);
+                update_btn_timer.add_css_class("suggested-action");
+                update_btn_timer.set_tooltip_text(Some(&t("Yeni bir Zapret güncellemesi mevcut!")));
+            } else {
+                update_btn_timer.set_visible(false);
+                update_btn_timer.remove_css_class("suggested-action");
+                update_btn_timer.set_tooltip_text(Some(&t("Zapret güncel.")));
+            }
+        }
+
+        let update_suffix = match has_update_timer.get() {
+            Some(true) => format!(" • {}", t("Güncelleme Mevcut")),
+            Some(false) => format!(" • {}", t("Güncel")),
+            None => String::new(),
+        };
+
         if is_active {
-            status_label_mgmt_timer.set_label(&t("Çalışıyor (Active)"));
+            status_label_mgmt_timer.set_label(&format!("{}{}", t("Çalışıyor (Active)"), update_suffix));
             status_label_mgmt_timer.add_css_class("success");
             status_label_mgmt_timer.remove_css_class("error");
             start_btn_timer.set_visible(false);
             stop_btn_timer.set_visible(true);
         } else {
-            status_label_mgmt_timer.set_label(&t("Durdu ({})").replace("{}", &status_text));
+            status_label_mgmt_timer.set_label(&format!("{}{}", t("Durdu ({})").replace("{}", &status_text), update_suffix));
             status_label_mgmt_timer.add_css_class("error");
             status_label_mgmt_timer.remove_css_class("success");
             start_btn_timer.set_visible(true);
@@ -724,7 +1386,15 @@ fn build_ui(app: &Application) {
         .build();
     let nav_view_for_settings = nav_view.clone();
     let page_status_clone = page_status.clone();
+    let search_strat_btn_for_nav = search_strat_settings_btn.clone();
+    let curr_p_for_settings = current_profile_id.clone();
     settings_mgmt_btn.connect_clicked(move |_| {
+        let act_id = curr_p_for_settings.get();
+        if is_profile_non_empty(act_id) {
+            search_strat_btn_for_nav.add_css_class("warning");
+        } else {
+            search_strat_btn_for_nav.remove_css_class("warning");
+        }
         nav_view_for_settings.push(&page_status_clone);
     });
     let window = ApplicationWindow::builder()
@@ -734,6 +1404,9 @@ fn build_ui(app: &Application) {
         .default_height(500)
         .content(&nav_view)
         .build();
+
+    let current_pid = Arc::new(Mutex::new(None::<u32>));
+    let test_cancel_flag = Arc::new(AtomicBool::new(false));
     start_service_btn.connect_clicked(move |_| {
          let init = get_init_system();
          if init == "openrc" {
@@ -761,6 +1434,602 @@ fn build_ui(app: &Application) {
          } else {
              let _ = Command::new("pkexec").arg("systemctl").arg("stop").arg("zapret").spawn();
          }
+    });
+
+    let win_update = window.clone();
+    let update_btn_click = update_service_btn.clone();
+    let status_lbl_click = status_label_mgmt.clone();
+    let (upd_action_sender, upd_action_receiver) = mpsc::channel::<Result<(), String>>();
+
+    let win_action_timer = window.clone();
+    let update_btn_action_timer = update_service_btn.clone();
+    let status_lbl_action_timer = status_label_mgmt.clone();
+    let has_update_action_timer = has_update_status.clone();
+    glib::timeout_add_local(Duration::from_millis(100), move || {
+        match upd_action_receiver.try_recv() {
+            Ok(Ok(())) => {
+                has_update_action_timer.set(Some(false));
+                update_btn_action_timer.set_visible(false);
+                update_btn_action_timer.set_sensitive(true);
+                update_btn_action_timer.remove_css_class("suggested-action");
+                update_btn_action_timer.set_tooltip_text(Some(&t("Zapret güncel.")));
+                status_lbl_action_timer.set_label(&format!("{} • {}", t("Çalışıyor (Active)"), t("Güncel")));
+                let success_dlg = adw::MessageDialog::builder()
+                    .transient_for(&win_action_timer)
+                    .heading(&t("Başarılı"))
+                    .body(&t("Zapret başarıyla en son sürüme güncellendi."))
+                    .build();
+                success_dlg.add_response("ok", &t("Tamam"));
+                success_dlg.present();
+            },
+            Ok(Err(err_text)) => {
+                update_btn_action_timer.set_sensitive(true);
+                let err_dlg = adw::MessageDialog::builder()
+                    .transient_for(&win_action_timer)
+                    .heading(&t("Güncelleme Hatası"))
+                    .body(&t("Zapret güncellenirken hata oluştu: {}").replace("{}", &err_text))
+                    .build();
+                err_dlg.add_response("ok", &t("Tamam"));
+                err_dlg.present();
+            },
+            Err(mpsc::TryRecvError::Empty) => {},
+            Err(mpsc::TryRecvError::Disconnected) => {},
+        }
+        glib::ControlFlow::Continue
+    });
+
+    let upd_action_sender_click = upd_action_sender.clone();
+    update_service_btn.connect_clicked(move |_| {
+        let dialog = adw::MessageDialog::builder()
+            .transient_for(&win_update)
+            .heading(&t("Zapret Güncellemesi"))
+            .body(&t("Zapret'in en son sürümü indirilip yeniden derlenecek ve servis yeniden başlatılacak. Devam edilsin mi?"))
+            .build();
+        dialog.add_response("cancel", &t("İptal"));
+        dialog.add_response("update", &t("Güncelle"));
+        dialog.set_response_appearance("update", ResponseAppearance::Suggested);
+        
+        let btn_dlg = update_btn_click.clone();
+        let lbl_dlg = status_lbl_click.clone();
+        let s_action = upd_action_sender_click.clone();
+        dialog.connect_response(None, move |d, response| {
+            d.close();
+            if response == "update" {
+                btn_dlg.set_sensitive(false);
+                lbl_dlg.set_label(&t("Güncelleniyor..."));
+                let s_thread = s_action.clone();
+                
+                thread::spawn(move || {
+                    let update_cmd = r#"
+set -e
+cd /opt/zapret
+git config --global --add safe.directory /opt/zapret || true
+git fetch origin
+git reset --hard origin/master || git pull origin master
+make -B
+if [ -f /opt/zapret/install_bin.sh ]; then
+    sh /opt/zapret/install_bin.sh || true
+fi
+systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null || sv restart zapret 2>/dev/null || service zapret restart 2>/dev/null || dinitctl restart zapret 2>/dev/null || true
+"#;
+                    let res = Command::new("pkexec")
+                        .arg("sh")
+                        .arg("-c")
+                        .arg(update_cmd)
+                        .output();
+
+                    match res {
+                        Ok(ref output) if output.status.success() => {
+                            let _ = s_thread.send(Ok(()));
+                        },
+                        Ok(ref output) => {
+                            let err_text = String::from_utf8_lossy(&output.stderr).to_string();
+                            let _ = s_thread.send(Err(err_text));
+                        },
+                        Err(ref e) => {
+                            let _ = s_thread.send(Err(e.to_string()));
+                        }
+                    }
+                });
+            }
+        });
+        dialog.present();
+    });
+
+    let win_preset_status = window.clone();
+    let list_mgmt_preset_status = strategies_list_box.clone();
+    let nav_mgmt_preset_status = nav_view.clone();
+    let page_mgmt_preset_status = page_mgmt.clone();
+    let search_strat_btn_for_preset = search_strat_settings_btn.clone();
+    preset_status_button.connect_clicked(move |_| {
+        let dialog = adw::MessageDialog::builder()
+            .transient_for(&win_preset_status)
+            .heading(&t("Hazır Stratejileri Yükle"))
+            .body(&t("Bu stratejiler çoğu durumda çalışır ancak her internet servis sağlayıcısında veya ağda çalışmayabilir.\n\nYine de devam edip kurmak istiyor musunuz?"))
+            .build();
+        dialog.add_response("cancel", &t("İptal"));
+        dialog.add_response("confirm", &t("Evet, Devam Et"));
+        dialog.set_response_appearance("confirm", ResponseAppearance::Suggested);
+        dialog.set_response_appearance("cancel", ResponseAppearance::Destructive);
+
+        let win_t = win_preset_status.clone();
+        let list_t = list_mgmt_preset_status.clone();
+        let nav_t = nav_mgmt_preset_status.clone();
+        let page_t = page_mgmt_preset_status.clone();
+        let search_btn_t = search_strat_btn_for_preset.clone();
+        dialog.connect_response(None, move |d, response| {
+            d.close();
+            if response == "confirm" {
+                match apply_preset_strategies() {
+                    Ok(_) => {
+                        let preset_vec: Vec<String> = DEFAULT_PRESET_STRATEGIES.iter().map(|s| s.to_string()).collect();
+                        let combined_strategies = preset_vec.join(" ");
+                        let config_path = Path::new("/opt/zapret/config");
+                        let content_res = fs::read_to_string(config_path).or_else(|_| {
+                            let out = Command::new("pkexec").arg("cat").arg("/opt/zapret/config").output();
+                            match out {
+                                Ok(o) if o.status.success() => Ok(String::from_utf8_lossy(&o.stdout).to_string()),
+                                _ => Err(io::Error::new(io::ErrorKind::PermissionDenied, t("Dosya okunamadı"))),
+                            }
+                        });
+                        if let Ok(content) = content_res {
+                            let new_content = update_config_content(&content, &combined_strategies);
+                            let temp_path = "/tmp/zapret_config_new";
+                            let _ = fs::write(temp_path, &new_content);
+                            let init = get_init_system();
+                            let restart_cmd = if init == "openrc" {
+                                "rc-service zapret restart"
+                            } else if init == "runit" {
+                                "sv restart zapret"
+                            } else if init == "sysvinit" {
+                                "service zapret restart"
+                            } else if init == "dinit" {
+                                "dinitctl restart zapret"
+                            } else {
+                                "systemctl restart zapret"
+                            };
+                            let full_cmd = format!("mv -f {} /opt/zapret/config && {}", temp_path, restart_cmd);
+                            let _ = Command::new("pkexec").arg("sh").arg("-c").arg(full_cmd).output();
+                        }
+
+                        let mut child = list_t.first_child();
+                        while let Some(widget) = child {
+                            let next = widget.next_sibling();
+                            list_t.remove(&widget);
+                            child = next;
+                        }
+                        for strat in &preset_vec {
+                            let child_label = Label::builder()
+                                .label(strat)
+                                .wrap(true)
+                                .max_width_chars(50)
+                                .xalign(0.0)
+                                .build();
+                            let check = CheckButton::builder()
+                                .child(&child_label)
+                                .active(true)
+                                .margin_top(10)
+                                .margin_bottom(10)
+                                .margin_start(10)
+                                .margin_end(10)
+                                .build();
+                            list_t.append(&check);
+                        }
+
+                        search_btn_t.add_css_class("warning");
+                        nav_t.replace(&[page_t.clone()]);
+
+                        let success_dlg = adw::MessageDialog::builder()
+                            .transient_for(&win_t)
+                            .heading(&t("Başarılı"))
+                            .body(&t("Hazır stratejiler kaydedildi ve otomatik olarak uygulandı."))
+                            .build();
+                        success_dlg.add_response("ok", &t("Tamam"));
+                        success_dlg.present();
+                    },
+                    Err(e) => {
+                        let err_dlg = adw::MessageDialog::builder()
+                            .transient_for(&win_t)
+                            .heading(&t("Hata"))
+                            .body(&t("Hazır stratejiler kaydedilemedi: {}").replace("{}", &e.to_string()))
+                            .build();
+                        err_dlg.add_response("ok", &t("Tamam"));
+                        err_dlg.present();
+                    }
+                }
+            }
+        });
+        dialog.present();
+    });
+
+    let win_rescan_btn = window.clone();
+    let nav_view_rescan_btn = nav_view.clone();
+    let page_rescan_for_btn = page_rescan.clone();
+    let page_rescan_check_for_btn = page_rescan_check.clone();
+    let status_lbl_rescan_chk = status_label_rescan_check.clone();
+    let conflict_lbl_rescan_chk = conflict_list_label_rescan.clone();
+    let force_btn_rescan_chk = force_continue_btn_rescan.clone();
+    let spinner_rescan_chk = spinner_rescan_check.clone();
+
+    let nav_force_rescan = nav_view.clone();
+    let page_rescan_force = page_rescan.clone();
+    force_continue_btn_rescan.connect_clicked(move |_| {
+        nav_force_rescan.push(&page_rescan_force);
+    });
+
+    let nav_stop_rescan = nav_view.clone();
+    let page_rescan_stop = page_rescan.clone();
+    stop_continue_btn_rescan.connect_clicked(move |_| {
+        let _ = Command::new("pkexec")
+            .arg("sh")
+            .arg("-c")
+            .arg("systemctl stop zapret 2>/dev/null || rc-service zapret stop 2>/dev/null || sv down zapret 2>/dev/null || service zapret stop 2>/dev/null || dinitctl stop zapret 2>/dev/null || killall -9 nfqws tpws dvtws 2>/dev/null || pkill -9 -x nfqws 2>/dev/null || pkill -9 -x tpws 2>/dev/null || true")
+            .output();
+        nav_stop_rescan.push(&page_rescan_stop);
+    });
+
+    let run_rescan_vpn_check = {
+        let nav = nav_view_rescan_btn.clone();
+        let p_check = page_rescan_check_for_btn.clone();
+        let p_target = page_rescan_for_btn.clone();
+        let lbl_s = status_lbl_rescan_chk.clone();
+        let lbl_c = conflict_lbl_rescan_chk.clone();
+        let btn_f = force_btn_rescan_chk.clone();
+        let btn_stop = stop_continue_btn_rescan.clone();
+        let spn_s = spinner_rescan_chk.clone();
+        Rc::new(move || {
+            nav.push(&p_check);
+            lbl_s.set_label(&t("Sistem ve VPN çakışmaları taranıyor..."));
+            lbl_s.remove_css_class("error");
+            lbl_s.remove_css_class("success");
+            lbl_c.set_label("");
+            btn_f.set_visible(false);
+            btn_stop.set_visible(false);
+            spn_s.set_spinning(true);
+            spn_s.set_visible(true);
+
+            let (tx, rx) = mpsc::channel();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(600));
+                let conflicts = check_processes();
+                let _ = tx.send(conflicts);
+            });
+
+            let lbl_status_timer = lbl_s.clone();
+            let lbl_conflict_timer = lbl_c.clone();
+            let btn_force_timer = btn_f.clone();
+            let btn_stop_timer = btn_stop.clone();
+            let spinner_timer = spn_s.clone();
+            let nav_timer = nav.clone();
+            let page_target_timer = p_target.clone();
+            glib::timeout_add_local(Duration::from_millis(100), move || {
+                match rx.try_recv() {
+                    Ok(conflicts) => {
+                        spinner_timer.set_spinning(false);
+                        spinner_timer.set_visible(false);
+                        if conflicts.is_empty() {
+                            lbl_status_timer.set_label(&t("Sorun bulunmadı."));
+                            lbl_status_timer.add_css_class("success");
+                            let n = nav_timer.clone();
+                            let p = page_target_timer.clone();
+                            glib::timeout_add_local(Duration::from_millis(800), move || {
+                                n.push(&p);
+                                glib::ControlFlow::Break
+                            });
+                        } else {
+                            lbl_status_timer.set_label(&t("Çakışan Uygulamalar Tespit Edildi!"));
+                            lbl_status_timer.add_css_class("error");
+                            let list_str = conflicts.join(", ");
+                            lbl_conflict_timer.set_label(&t("Şu servisler kapatılmalı: {}").replace("{}", &list_str));
+                            btn_stop_timer.set_visible(true);
+                            btn_force_timer.set_visible(true);
+                        }
+                        glib::ControlFlow::Break
+                    },
+                    Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+                    Err(mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
+                }
+            });
+        })
+    };
+
+    let nav_hostlist_click = nav_view.clone();
+    let page_hostlist_click = page_hostlist.clone();
+    let entries_container_hl_click = entries_container_hostlist.clone();
+    let add_btn_hl_click = add_button_hostlist.clone();
+    let curr_p_for_hl_btn = current_profile_id.clone();
+    let page_hl_clone_tag = page_hostlist.clone();
+    hostlist_btn.connect_clicked(move |_| {
+        let act_id = curr_p_for_hl_btn.get();
+        let domains = load_profile_hostlist(act_id);
+        populate_hostlist_entries(&entries_container_hl_click, &add_btn_hl_click, &domains);
+        page_hl_clone_tag.set_title(&format!("{} ({} {})", t("Hostlist"), t("Profil"), act_id));
+        nav_hostlist_click.push(&page_hostlist_click);
+    });
+
+    let entries_container_save_hl = entries_container_hostlist.clone();
+    let curr_p_for_save_hl = current_profile_id.clone();
+    let win_save_hl = window.clone();
+    save_hostlist_btn.connect_clicked(move |_| {
+        let act_id = curr_p_for_save_hl.get();
+        let mut domains = Vec::new();
+        let mut current_child = entries_container_save_hl.first_child();
+        while let Some(child) = current_child {
+            if let Ok(entry) = child.clone().downcast::<Entry>() {
+                let text = entry.text().trim().to_string();
+                if !text.is_empty() {
+                    if text.starts_with("http://") || text.starts_with("https://") || text.starts_with("www.") {
+                        let dialog = adw::MessageDialog::builder()
+                            .transient_for(&win_save_hl)
+                            .heading(&t("Hatalı Alan Adı"))
+                            .body(&t("'{}' geçerli bir alan adı formatı değil.\nLütfen 'http://', 'https://' veya 'www.' kullanmadan sadece alan adını girin (örnek: google.com).").replace("{}", &text))
+                            .build();
+                        dialog.add_response("ok", &t("Tamam"));
+                        dialog.present();
+                        return;
+                    }
+                    domains.push(text);
+                }
+            }
+            current_child = child.next_sibling();
+        }
+
+        if let Err(e) = save_profile_hostlist(act_id, &domains) {
+            let err_dlg = adw::MessageDialog::builder()
+                .transient_for(&win_save_hl)
+                .heading(&t("Hata"))
+                .body(&t("Dosya kaydedilemedi: {}").replace("{}", &e.to_string()))
+                .build();
+            err_dlg.add_response("ok", &t("Tamam"));
+            err_dlg.present();
+            return;
+        }
+
+        let _ = apply_profile_hostlist_to_zapret(act_id);
+
+        let success_dlg = adw::MessageDialog::builder()
+            .transient_for(&win_save_hl)
+            .heading(&t("Başarılı"))
+            .body(&t("Profil {} hostlist kaydedildi ve uygulandı.").replace("{}", &act_id.to_string()))
+            .build();
+        success_dlg.add_response("ok", &t("Tamam"));
+        success_dlg.present();
+    });
+
+    let check_flow_click = run_rescan_vpn_check.clone();
+    let curr_p_for_search_btn = current_profile_id.clone();
+    search_strat_settings_btn.connect_clicked(move |_| {
+        let flow = check_flow_click.clone();
+        let act_id = curr_p_for_search_btn.get();
+        if is_profile_non_empty(act_id) {
+            let dialog = adw::MessageDialog::builder()
+                .transient_for(&win_rescan_btn)
+                .heading(&t("Strateji Araması"))
+                .body(&t("Profil {} için mevcut kayıtlı stratejilerinizin üzerine yeni bulunacak stratejiler yazılacaktır. Devam etmek istiyor musunuz?").replace("{}", &act_id.to_string()))
+                .build();
+            dialog.add_response("cancel", &t("Vazgeç"));
+            dialog.add_response("continue", &t("Devam Et"));
+            dialog.set_response_appearance("cancel", ResponseAppearance::Destructive);
+            dialog.set_response_appearance("continue", ResponseAppearance::Suggested);
+            dialog.connect_response(None, move |d, response| {
+                d.close();
+                if response == "continue" {
+                    flow();
+                }
+            });
+            dialog.present();
+        } else {
+            flow();
+        }
+    });
+
+    let entries_container_rescan_read = entries_container_rescan.clone();
+    let window_clone_rescan = window.clone();
+    let nav_view_rescan_test = nav_view.clone();
+    let page_test_rescan = page_test.clone();
+    let label_test_counter_rescan = label_test_counter.clone();
+    let label_test_title_rescan = label_test_title.clone();
+    let label_test_info_rescan = label_test_info.clone();
+    let test_cancel_flag_rescan = test_cancel_flag.clone();
+    let current_pid_rescan = current_pid.clone();
+    let nav_view_mgmt_rescan = nav_view.clone();
+    let page_mgmt_rescan = page_mgmt.clone();
+    let list_box_mgmt_rescan = strategies_list_box.clone();
+
+    finish_button_rescan.connect_clicked(move |_| {
+        let mut domains = Vec::new();
+        let mut current_child = entries_container_rescan_read.first_child();
+        while let Some(child) = current_child {
+            if let Ok(entry) = child.clone().downcast::<Entry>() {
+                let text = entry.text();
+                if !text.is_empty() {
+                    let domain = text.to_string();
+                    if domain.starts_with("http://") || domain.starts_with("https://") || domain.starts_with("www.") {
+                        let dialog = adw::MessageDialog::builder()
+                            .transient_for(&window_clone_rescan)
+                            .heading(&t("Hatalı Alan Adı"))
+                            .body(&t("'{}' geçerli bir alan adı formatı değil.\nLütfen 'http://', 'https://' veya 'www.' kullanmadan sadece alan adını girin (örnek: google.com).").replace("{}", &domain))
+                            .build();
+                        dialog.add_response("ok", &t("Tamam"));
+                        dialog.present();
+                        return;
+                    }
+                    domains.push(domain);
+                }
+            }
+            current_child = child.next_sibling(); 
+        }
+        if domains.is_empty() {
+            let dialog = adw::MessageDialog::builder()
+                .transient_for(&window_clone_rescan)
+                .heading(&t("Hata"))
+                .body(&t("Lütfen test edilecek en az bir alan adı girin."))
+                .build();
+            dialog.add_response("ok", &t("Tamam"));
+            dialog.present();
+            return;
+        }
+        let dialog = adw::MessageDialog::builder()
+            .transient_for(&window_clone_rescan)
+            .heading(&t("Tarama Modu Seçin"))
+            .body(&t("Blockcheck taraması için bir hız ve kapsam seviyesi belirleyin."))
+            .build();
+        dialog.add_response("quick", &t("Hızlı\n(1 Deneme, Quick)"));
+        dialog.add_response("standard", &t("Normal\n(3 Deneme, Standard)"));
+        dialog.add_response("force", &t("Detaylı\n(3 Deneme, Force)"));
+        dialog.add_response("cancel", &t("Vazgeç"));
+        dialog.set_response_appearance("standard", ResponseAppearance::Suggested);
+        dialog.set_response_appearance("cancel", ResponseAppearance::Destructive);
+        let cf = test_cancel_flag_rescan.clone();
+        let nav = nav_view_rescan_test.clone();
+        let page = page_test_rescan.clone();
+        let lbl = label_test_counter_rescan.clone();
+        let lbl_title = label_test_title_rescan.clone();
+        let lbl_info = label_test_info_rescan.clone();
+        let pid = current_pid_rescan.clone(); 
+        let win = window_clone_rescan.clone();
+        let d_list = domains.clone();
+        let nav_mgmt = nav_view_mgmt_rescan.clone();
+        let page_mgmt = page_mgmt_rescan.clone();
+        let list_mgmt = list_box_mgmt_rescan.clone();
+        dialog.connect_response(None, move |d: &adw::MessageDialog, response_id| {
+            let (repeats, scan_level) = match response_id {
+                "quick" => (1, "quick".to_string()),
+                "standard" => (3, "standard".to_string()),
+                "force" => (3, "force".to_string()),
+                "cancel" | _ => { 
+                    d.close(); 
+                    return; 
+                }
+            };
+            d.close();
+            cf.store(false, Ordering::Relaxed);
+            let cf_thread = cf.clone();
+            lbl_title.set_label(&t("Stratejiler aranıyor..."));
+            lbl_info.set_label(&t("Bu işlem internet hızınıza göre zaman alabilir.\nLütfen bekleyiniz."));
+            lbl.set_label(&t("Denenen Stratejiler: 0"));
+            nav.push(&page);
+            let (sender, receiver) = mpsc::channel();
+            let d_vec = d_list.clone();
+            thread::spawn(move || {
+                run_blockcheck_process(d_vec, repeats, scan_level, sender, cf_thread, Some(PathBuf::from("/opt/zapret")));
+            });
+            let pid_timer = pid.clone();
+            let nav_timer = nav.clone();
+            let lbl_timer = lbl.clone();
+            let win_timer = win.clone();
+            let list_box_mgmt_timer = list_mgmt.clone();
+            let nav_mgmt_timer = nav_mgmt.clone();
+            let page_mgmt_timer = page_mgmt.clone();
+            let mut count = 0;
+            glib::timeout_add_local(Duration::from_millis(50), move || {
+                match receiver.try_recv() {
+                    Ok(msg) => {
+                        match msg {
+                            TestMsg::Started(id) => {
+                                if let Ok(mut guard) = pid_timer.lock() {
+                                    *guard = Some(id);
+                                }
+                                glib::ControlFlow::Continue
+                            },
+                            TestMsg::ProgressTick => {
+                                count += 1;
+                                lbl_timer.set_label(&t("Denenen Stratejiler: {}").replace("{}", &count.to_string()));
+                                glib::ControlFlow::Continue
+                            },
+                            TestMsg::Log(line) => {
+                                let short_log = if line.len() > 50 { format!("{}...", &line[..47]) } else { line };
+                                lbl_timer.set_label(&short_log);
+                                glib::ControlFlow::Continue
+                            },
+                            TestMsg::Finished(result) => {
+                                if let Ok(mut guard) = pid_timer.lock() {
+                                    *guard = None;
+                                }
+                                match result {
+                                    Ok(strategies) => {
+                                        if strategies.is_empty() {
+                                            let dialog = adw::MessageDialog::builder()
+                                                .transient_for(&win_timer)
+                                                .heading(&t("Strateji Bulunamadı"))
+                                                .body(&t("Blockcheck tamamlandı ancak çalışan bir strateji bulunamadı."))
+                                                .build();
+                                            dialog.add_response("ok", &t("Tamam"));
+                                            dialog.connect_response(None, move |d, _| d.close());
+                                            dialog.present();
+                                            nav_timer.pop();
+                                        } else {
+                                            if let Err(e) = save_strategies_to_json(&strategies) {
+                                                let dialog = adw::MessageDialog::builder()
+                                                    .transient_for(&win_timer)
+                                                    .heading(&t("Kaydetme Hatası"))
+                                                    .body(&t("Dosya kaydedilemedi: {}").replace("{}", &e.to_string()))
+                                                    .build();
+                                                dialog.add_response("ok", &t("Tamam"));
+                                                dialog.connect_response(None, move |d, _| d.close());
+                                                dialog.present();
+                                            } else {
+                                                let mut child = list_box_mgmt_timer.first_child();
+                                                while let Some(widget) = child {
+                                                    let next = widget.next_sibling();
+                                                    list_box_mgmt_timer.remove(&widget);
+                                                    child = next;
+                                                }
+                                                let config_content = fs::read_to_string("/opt/zapret/config").unwrap_or_default();
+                                                for strat in &strategies {
+                                                    let is_active = !config_content.is_empty() && config_content.contains(strat);
+                                                    let child_label = Label::builder()
+                                                        .label(strat)
+                                                        .wrap(true)
+                                                        .max_width_chars(50)
+                                                        .xalign(0.0)
+                                                        .build();
+                                                    let check = CheckButton::builder()
+                                                        .child(&child_label)
+                                                        .active(is_active)
+                                                        .margin_top(10)
+                                                        .margin_bottom(10)
+                                                        .margin_start(10)
+                                                        .margin_end(10)
+                                                        .build();
+                                                    list_box_mgmt_timer.append(&check);
+                                                }
+                                                nav_mgmt_timer.replace(&[page_mgmt_timer.clone()]);
+                                                let success_dlg = adw::MessageDialog::builder()
+                                                    .transient_for(&win_timer)
+                                                    .heading(&t("Başarılı"))
+                                                    .body(&t("Yeni stratejiler başarıyla bulundu ve kaydedildi. Ana ekrandan istediğiniz stratejileri seçip 'Uygula' butonuna basarak aktifleştirebilirsiniz."))
+                                                    .build();
+                                                success_dlg.add_response("ok", &t("Tamam"));
+                                                success_dlg.connect_response(None, move |d, _| d.close());
+                                                success_dlg.present();
+                                            }
+                                        }
+                                    },
+                                    Err(e) => {
+                                        if e.to_string() != "İptal edildi" {
+                                            let dialog = adw::MessageDialog::builder()
+                                                .transient_for(&win_timer)
+                                                .heading(&t("Strateji Bulma Hatası"))
+                                                .body(&t("Blockcheck çalıştırılamadı: {}").replace("{}", &e.to_string()))
+                                                .build();
+                                            dialog.add_response("ok", &t("Tamam"));
+                                            dialog.present();
+                                        }
+                                        nav_timer.pop();
+                                    }
+                                }
+                                glib::ControlFlow::Break
+                            },
+                            _ => glib::ControlFlow::Continue,
+                        }
+                    },
+                    Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+                    Err(mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
+                }
+            });
+        });
+        dialog.present();
     });
     let win_about = window.clone();
     about_btn.connect_clicked(move |_| {
@@ -857,28 +2126,33 @@ fn build_ui(app: &Application) {
         dialog.connect_response(None, move |d, response| {
             if response == "delete" {
                  log_to_file("User initiated Zapret deletion.");
-                 let init = get_init_system();
                  let mut cmd = String::new();
                  
-                 cmd.push_str("if [ -f /opt/zapret/uninstall_easy.sh ]; then sh /opt/zapret/uninstall_easy.sh; fi; ");
-                 cmd.push_str("rm -rf /opt/zapret; ");
+                 cmd.push_str("if [ -f /opt/zapret/uninstall_easy.sh ]; then sh /opt/zapret/uninstall_easy.sh 2>/dev/null || true; fi; ");
+                 cmd.push_str("rm -rf /opt/zapret 2>/dev/null || true; ");
                  
                  if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
                       let cfg_path = proj_dirs.config_dir().to_string_lossy();
-                      cmd.push_str(&format!("rm -rf \"{}\"; ", cfg_path));
+                      cmd.push_str(&format!("rm -rf \"{}\" 2>/dev/null || true; ", cfg_path));
                  }
                  
-                 if init == "runit" {
-                     cmd.push_str("sv down zapret; rm /var/service/zapret; rm -rf /etc/sv/zapret; ");
-                 } else if init == "sysvinit" {
-                     cmd.push_str("service zapret stop; if command -v update-rc.d >/dev/null 2>&1; then update-rc.d -f zapret remove; elif command -v chkconfig >/dev/null 2>&1; then chkconfig --del zapret; fi; rm /etc/init.d/zapret; ");
-                 } else if init == "dinit" {
-                     cmd.push_str("dinitctl stop zapret; dinitctl disable zapret; rm /etc/dinit.d/zapret; ");
-                 } else if init == "systemd" {
-                     cmd.push_str("systemctl stop zapret; systemctl disable zapret; ");
-                 } else if init == "openrc" {
-                     cmd.push_str("rc-service zapret stop; rc-update del zapret; ");
-                 }
+                 cmd.push_str("systemctl stop zapret 2>/dev/null || true; ");
+                 cmd.push_str("systemctl disable zapret 2>/dev/null || true; ");
+                 cmd.push_str("systemctl disable zapret-custom 2>/dev/null || true; ");
+                 cmd.push_str("rm -f /etc/systemd/system/zapret.service /etc/systemd/system/zapret-custom.service /lib/systemd/system/zapret.service 2>/dev/null || true; ");
+                 cmd.push_str("systemctl daemon-reload 2>/dev/null || true; ");
+                 cmd.push_str("rc-service zapret stop 2>/dev/null || true; ");
+                 cmd.push_str("rc-update del zapret default 2>/dev/null || rc-update del zapret 2>/dev/null || true; ");
+                 cmd.push_str("rm -f /etc/init.d/zapret 2>/dev/null || true; ");
+                 cmd.push_str("sv down zapret 2>/dev/null || true; ");
+                 cmd.push_str("rm -rf /var/service/zapret /etc/service/zapret /run/runit/service/zapret 2>/dev/null || true; ");
+                 cmd.push_str("service zapret stop 2>/dev/null || /etc/init.d/zapret stop 2>/dev/null || true; ");
+                 cmd.push_str("if command -v update-rc.d >/dev/null 2>&1; then update-rc.d -f zapret remove 2>/dev/null || true; elif command -v chkconfig >/dev/null 2>&1; then chkconfig --del zapret 2>/dev/null || true; fi; ");
+                 cmd.push_str("rm -f /etc/init.d/zapret /etc/rc.d/zapret 2>/dev/null || true; ");
+                 cmd.push_str("dinitctl stop zapret 2>/dev/null || true; ");
+                 cmd.push_str("dinitctl disable zapret 2>/dev/null || true; ");
+                 cmd.push_str("rm -f /etc/dinit.d/zapret /etc/dinit.d/boot.d/zapret 2>/dev/null || true; ");
+                 cmd.push_str("killall -9 nfqws tpws dvtws 2>/dev/null || pkill -9 -x nfqws 2>/dev/null || pkill -9 -x tpws 2>/dev/null || true; ");
                  
                  let res = Command::new("pkexec")
                     .arg("sh")
@@ -934,110 +2208,49 @@ fn build_ui(app: &Application) {
         dialog.present();
     });
 
+    let curr_p_import = current_profile_id.clone();
     import_button_status.connect_clicked(move |_| {
         let file_dialog = gtk::FileDialog::builder()
             .title(&t("Strateji Dosyası Seç"))
             .modal(true)
             .build();
+        let filter = FileFilter::new();
+        filter.set_name(Some(&t("JSON Dosyaları")));
+        filter.add_pattern("*.json");
+        let filters = gtk::gio::ListStore::new::<FileFilter>();
+        filters.append(&filter);
+        file_dialog.set_filters(Some(&filters));
+        file_dialog.set_default_filter(Some(&filter));
+
         let win_import_status_c = win_import_status.clone();
         let strategies_list_box_status_c = strategies_list_box_status.clone();
         let win_import_status_closure = win_import_status_c.clone();
+        let curr_p_c = curr_p_import.clone();
         file_dialog.open(Some(&win_import_status_c), None::<&gtk::gio::Cancellable>, move |result| {
              if let Ok(file) = result {
                 if let Some(path) = file.path() {
-                    match fs::read_to_string(&path) {
-                        Ok(content) => {
-                             let trimmed = content.trim();
-                             if trimmed.starts_with('[') && trimmed.ends_with(']') {
-                                let inner = &trimmed[1..trimmed.len()-1];
-                                let mut in_string = false;
-                                let mut current_strat = String::new();
-                                let mut strategies = Vec::new();
-                                for c in inner.chars() {
-                                    if c == '"' {
-                                        in_string = !in_string;
-                                        if !in_string && !current_strat.is_empty() {
-                                            let mut strategy = current_strat.clone();
-                                            let zapret_base_str = get_zapret_path().to_string_lossy().to_string();
-                                            strategy = strategy.replace(&zapret_base_str, "/opt/zapret");
-                                            
-                                            if let Some(start) = strategy.find("/home/") {
-                                                if let Some(end) = strategy[start..].find("/zapret/") {
-                                                    let old_path = &strategy[start..start + end + 7];
-                                                    let old_path_str = old_path.to_string();
-                                                    strategy = strategy.replace(&old_path_str, "/opt/zapret");
-                                                }
-                                            }
-                                            strategies.push(strategy);
-                                            current_strat.clear();
-                                        }
-                                    } else if in_string {
-                                        if c != '\\' { 
-                                            current_strat.push(c); 
-                                        }
-                                    }
-                                }
-                                if strategies.is_empty() {
-                                     let dialog = adw::MessageDialog::builder()
-                                        .transient_for(&win_import_status_closure)
-                                        .heading(&t("Hata"))
-                                        .body(&t("Dosya içerisinde strateji bulunamadı."))
-                                        .build();
-                                    dialog.add_response("ok", &t("Tamam"));
-                                    dialog.present();
-                                    return;
-                                }
-                                while let Some(child) = strategies_list_box_status_c.first_child() {
-                                    strategies_list_box_status_c.remove(&child);
-                                }
-
-                                let config_content = fs::read_to_string("/opt/zapret/config")
-                                    .unwrap_or_else(|_| "".to_string());
-
-                                for strat in strategies {
-                                    let is_active = !config_content.is_empty() && config_content.contains(&strat);
-
-                                    let child_label = Label::builder()
-                                        .label(&strat)
-                                        .wrap(true)
-                                        .max_width_chars(50)
-                                        .xalign(0.0)
-                                        .build();
-                                    let check = CheckButton::builder()
-                                        .child(&child_label)
-                                        .active(is_active)
-                                        .margin_top(10)
-                                        .margin_bottom(10)
-                                        .margin_start(10)
-                                        .margin_end(10)
-                                        .build();
-                                    strategies_list_box_status_c.append(&check);
-                                }
-                                let dialog = adw::MessageDialog::builder()
-                                    .transient_for(&win_import_status_closure)
-                                    .heading(&t("Başarılı"))
-                                    .body(&t("Stratejiler içe aktarıldı."))
-                                    .build();
-                                dialog.add_response("ok", &t("Tamam"));
-                                dialog.connect_response(None, move |d, _| { d.close(); });
-                                dialog.present();
-                             } else {
-                                  let dialog = adw::MessageDialog::builder()
-                                    .transient_for(&win_import_status_closure)
-                                    .heading(&t("Hata"))
-                                    .body(&t("Dosya geçerli bir JSON listesi (array) formatında değil."))
-                                    .build();
-                                dialog.add_response("ok", &t("Tamam"));
-                                dialog.present();
-                             }
-                        },
-                        Err(e) => {
-                             let dialog = adw::MessageDialog::builder()
+                    let target_id = curr_p_c.get();
+                    match validate_and_copy_strategies(&path, target_id) {
+                        Ok(_) => {
+                            let loaded = load_profile_strategies(target_id);
+                            populate_strategies_box(&strategies_list_box_status_c, &loaded);
+                            let dialog = adw::MessageDialog::builder()
                                 .transient_for(&win_import_status_closure)
-                                .heading(&t("Okuma Hatası"))
-                                .body(&t("Dosya okunamadı: {}").replace("{}", &e.to_string()))
+                                .heading(&t("Başarılı"))
+                                .body(&t("Stratejiler içe aktarıldı."))
                                 .build();
                             dialog.add_response("ok", &t("Tamam"));
+                            dialog.connect_response(None, move |d, _| { d.close(); });
+                            dialog.present();
+                        },
+                        Err(e) => {
+                            let dialog = adw::MessageDialog::builder()
+                                .transient_for(&win_import_status_closure)
+                                .heading(&t("Hata"))
+                                .body(&e.to_string())
+                                .build();
+                            dialog.add_response("ok", &t("Tamam"));
+                            dialog.connect_response(None, move |d, _| { d.close(); });
                             dialog.present();
                         }
                     }
@@ -1046,8 +2259,11 @@ fn build_ui(app: &Application) {
         });
     });
     let win_export = window.clone();
+    let curr_p_export = current_profile_id.clone();
     export_button.connect_clicked(move |_| {
-        if !get_config_path().exists() {
+        let target_id = curr_p_export.get();
+        let target_path = get_profile_path(target_id);
+        if !target_path.exists() {
              let dialog = adw::MessageDialog::builder()
                 .transient_for(&win_export)
                 .heading(&t("Hata"))
@@ -1059,7 +2275,7 @@ fn build_ui(app: &Application) {
         }
         let file_dialog = gtk::FileDialog::builder()
             .title(&t("Stratejileri Kaydet"))
-            .initial_name("strategies.json")
+            .initial_name(&format!("strategies_profile_{}.json", target_id))
             .modal(true)
             .accept_label(&t("Kaydet"))
             .build();
@@ -1067,7 +2283,7 @@ fn build_ui(app: &Application) {
         file_dialog.save(Some(&win_export), None::<&gtk::gio::Cancellable>, move |result| {
              if let Ok(file) = result {
                 if let Some(path) = file.path() {
-                    match fs::copy(get_config_path(), &path) {
+                    match fs::copy(&target_path, &path) {
                         Ok(_) => {
                              let dialog = adw::MessageDialog::builder()
                                 .transient_for(&win_export_c)
@@ -1091,10 +2307,96 @@ fn build_ui(app: &Application) {
              }
         });
     });
+    let profile_btns_rc = Rc::new(profile_buttons);
+    for id in 1..=10 {
+        let btn = &profile_btns_rc[id - 1];
+        let curr_p = current_profile_id.clone();
+        let list_box = strategies_list_box.clone();
+        let all_btns = profile_btns_rc.clone();
+        btn.connect_clicked(move |_| {
+            let old_id = curr_p.get();
+            if old_id == id {
+                return;
+            }
+            let mut current_items = Vec::new();
+            let mut child = list_box.first_child();
+            while let Some(widget) = child {
+                let content_widget = if let Ok(row) = widget.clone().downcast::<ListBoxRow>() {
+                    row.child()
+                } else {
+                    Some(widget.clone())
+                };
+                if let Some(content) = content_widget {
+                    if let Ok(check) = content.downcast::<CheckButton>() {
+                        let val = if let Some(lbl) = check.label() {
+                            Some(lbl)
+                        } else if let Some(child) = check.child() {
+                            if let Ok(lbl) = child.downcast::<Label>() {
+                                Some(lbl.label())
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        if let Some(label_txt) = val {
+                            current_items.push(ProfileStrategy {
+                                strategy: label_txt.to_string(),
+                                active: check.is_active(),
+                            });
+                        }
+                    }
+                }
+                child = widget.next_sibling();
+            }
+            if !current_items.is_empty() {
+                let _ = save_profile_strategies(old_id, &current_items);
+            }
+
+            curr_p.set(id);
+
+            for (idx, b) in all_btns.iter().enumerate() {
+                if idx + 1 == id {
+                    b.add_css_class("suggested-action");
+                } else {
+                    b.remove_css_class("suggested-action");
+                }
+            }
+
+            let mut child = list_box.first_child();
+            while let Some(widget) = child {
+                let next = widget.next_sibling();
+                list_box.remove(&widget);
+                child = next;
+            }
+
+            let items = load_profile_strategies(id);
+            for item in items {
+                let child_label = Label::builder()
+                    .label(&item.strategy)
+                    .wrap(true)
+                    .max_width_chars(50)
+                    .xalign(0.0)
+                    .build();
+                let check = CheckButton::builder()
+                    .child(&child_label)
+                    .active(item.active)
+                    .margin_top(10)
+                    .margin_bottom(10)
+                    .margin_start(10)
+                    .margin_end(10)
+                    .build();
+                list_box.append(&check);
+            }
+        });
+    }
+
     let list_box_apply = strategies_list_box.clone();
     let win_apply = window.clone();
+    let curr_p_apply = current_profile_id.clone();
     apply_button.connect_clicked(move |_| {
         let mut selected_strategies = Vec::new();
+        let mut all_strategies = Vec::new();
         let mut child = list_box_apply.first_child();
         while let Some(widget) = child {
             let content_widget = if let Ok(row) = widget.clone().downcast::<ListBoxRow>() {
@@ -1104,7 +2406,6 @@ fn build_ui(app: &Application) {
             };
             if let Some(content) = content_widget {
                 if let Ok(check) = content.downcast::<CheckButton>() {
-                    if check.is_active() {
                     let val = if let Some(lbl) = check.label() {
                         Some(lbl)
                     } else if let Some(child) = check.child() {
@@ -1117,13 +2418,24 @@ fn build_ui(app: &Application) {
                         None
                     };
                     if let Some(label_txt) = val {
-                        selected_strategies.push(label_txt.to_string());
-                    }
+                        let is_active = check.is_active();
+                        all_strategies.push(ProfileStrategy {
+                            strategy: label_txt.to_string(),
+                            active: is_active,
+                        });
+                        if is_active {
+                            selected_strategies.push(label_txt.to_string());
+                        }
                     }
                 }
             }
             child = widget.next_sibling();
         }
+        let current_id = curr_p_apply.get();
+        if !all_strategies.is_empty() {
+            let _ = save_profile_strategies(current_id, &all_strategies);
+        }
+
         if selected_strategies.is_empty() {
              let dialog = adw::MessageDialog::builder()
                 .transient_for(&win_apply)
@@ -1135,8 +2447,8 @@ fn build_ui(app: &Application) {
             return;
         }
         let combined_strategies = selected_strategies.join(" ");
-        println!("Applying: {}", combined_strategies);
-        log_to_file(&format!("Applying strategies: {}", combined_strategies));
+        println!("Applying profile {}: {}", current_id, combined_strategies);
+        log_to_file(&format!("Applying profile {} strategies: {}", current_id, combined_strategies));
         let config_path = Path::new("/opt/zapret/config");
         let content_res = fs::read_to_string(config_path).or_else(|_| {
              let out = Command::new("pkexec").arg("cat").arg("/opt/zapret/config").output();
@@ -1148,7 +2460,20 @@ fn build_ui(app: &Application) {
         match content_res {
             Ok(content) => {
                 let new_content = update_config_content(&content, &combined_strategies);
+                let domains = load_profile_hostlist(current_id);
+                let mode_filter = if domains.is_empty() { "none" } else { "hostlist" };
+                let new_content = update_config_mode_filter(&new_content, mode_filter);
+
                 let temp_path = "/tmp/zapret_config_new";
+                let temp_hosts = "/tmp/zapret_hosts_user_new.txt";
+
+                let mut hosts_content = String::new();
+                for d in &domains {
+                    hosts_content.push_str(d);
+                    hosts_content.push('\n');
+                }
+                let _ = fs::write(temp_hosts, &hosts_content);
+
                 if let Err(e) = fs::write(temp_path, &new_content) {
                      let dialog = adw::MessageDialog::builder()
                         .transient_for(&win_apply)
@@ -1171,7 +2496,7 @@ fn build_ui(app: &Application) {
                 } else {
                     "systemctl restart zapret"
                 };
-                let cmd_script = format!("mv -f {} /opt/zapret/config && {}", temp_path, restart_cmd);
+                let cmd_script = format!("mv -f {} /opt/zapret/ipset/zapret-hosts-user.txt && mv -f {} /opt/zapret/config && {}", temp_hosts, temp_path, restart_cmd);
                 let res = Command::new("pkexec")
                     .arg("sh")
                     .arg("-c")
@@ -1180,10 +2505,11 @@ fn build_ui(app: &Application) {
                 match res {
                     Ok(output) if output.status.success() => {
                         log_to_file("Config file updated successfully and service restarted.");
+                        save_active_profile_id(current_id);
                         let dialog = adw::MessageDialog::builder()
                             .transient_for(&win_apply)
                             .heading(&t("Başarılı"))
-                            .body(&t("Stratejiler config dosyasına yazıldı ve Zapret servisi yeniden başlatıldı."))
+                            .body(&t("Profil {} stratejileri uygulandı ve Zapret servisi yeniden başlatıldı.").replace("{}", &current_id.to_string()))
                             .build();
                         dialog.add_response("ok", &t("Tamam"));
                         dialog.present();
@@ -1221,51 +2547,14 @@ fn build_ui(app: &Application) {
             }
         }
     });
-    if Path::new("/opt/zapret").exists() && get_config_path().exists() {
+    let active_profile_init = get_active_profile_id();
+    if Path::new("/opt/zapret").exists() && (get_config_path().exists() || get_profile_path(1).exists()) {
         delete_local_zapret_folder();
-         if let Ok(content) = fs::read_to_string(get_config_path()) {
-             let config_content = fs::read_to_string("/opt/zapret/config")
-                 .unwrap_or_else(|_| "".to_string());
-             let trimmed = content.trim();
-             if trimmed.starts_with('[') {
-                let inner = &trimmed[1..trimmed.len()-1];
-                let mut in_string = false;
-                let mut current_strat = String::new();
-                let mut strategies = Vec::new();
-                for c in inner.chars() {
-                    if c == '"' {
-                        in_string = !in_string;
-                        if !in_string && !current_strat.is_empty() {
-                            strategies.push(current_strat.clone());
-                            current_strat.clear();
-                        }
-                    } else if in_string {
-                        if c != '\\' { 
-                            current_strat.push(c); 
-                        }
-                    }
-                }
-                for strat in strategies {
-                    let is_active = !config_content.is_empty() && config_content.contains(&strat);
-                    let child_label = Label::builder()
-                        .label(&strat)
-                        .wrap(true)
-                        .max_width_chars(50)
-                        .xalign(0.0)
-                        .build();
-                    let check = CheckButton::builder()
-                        .child(&child_label)
-                        .active(is_active)
-                        .margin_top(10)
-                        .margin_bottom(10)
-                        .margin_start(10)
-                        .margin_end(10)
-                        .build();
-                    strategies_list_box.append(&check);
-                }
-                nav_view.push(&page_mgmt);
-             }
-         }
+        let loaded = load_profile_strategies(active_profile_init);
+        if !loaded.is_empty() {
+            populate_strategies_box(&strategies_list_box, &loaded);
+            nav_view.push(&page_mgmt);
+        }
     }
     button.connect_clicked(move |_| {
         if is_installing_click.get() {
@@ -1401,34 +2690,59 @@ fn build_ui(app: &Application) {
             }
         });
 
-        if check_network_manager() {
-             let dialog = adw::MessageDialog::builder()
-                .transient_for(&window_clone) 
-                .heading(&t("DNS Ayarı"))
-                .body(&t("Mevcut DNS adresiniz Cloudflare ile değiştirilsin mi? (Bu işlemin ne anlama geldiğini bilmiyorsanız 'Evet' butonuna tıklayarak devam edebilirsiniz.)"))
+        let has_existing_opt_zapret = Path::new("/opt/zapret").exists();
+        let win_for_dns = window_clone.clone();
+        let flow_for_dns = run_installation_flow.clone();
+        let start_install_with_dns_check = Rc::new(move || {
+            if check_network_manager() {
+                let dialog = adw::MessageDialog::builder()
+                    .transient_for(&win_for_dns) 
+                    .heading(&t("DNS Ayarı"))
+                    .body(&t("Mevcut DNS adresiniz Cloudflare ile değiştirilsin mi? (Bu işlemin ne anlama geldiğini bilmiyorsanız 'Evet' butonuna tıklayarak devam edebilirsiniz.)"))
+                    .build();
+                dialog.add_response("no", &t("Hayır"));
+                dialog.add_response("yes", &t("Evet"));
+                dialog.set_response_appearance("yes", ResponseAppearance::Suggested);
+                
+                let flow_clone = flow_for_dns.clone();
+                dialog.connect_response(None, move |d, response_id| {
+                    d.close();
+                    let set_dns = response_id == "yes";
+                    flow_clone(set_dns);
+                });
+                dialog.present();
+            } else {
+                flow_for_dns(false);
+            }
+        });
+
+        if has_existing_opt_zapret {
+            let warn_dialog = adw::MessageDialog::builder()
+                .transient_for(&window_clone)
+                .heading(&t("Mevcut Kurulum Tespit Edildi"))
+                .body(&t("Sistemde önceden kurulmuş bir Zapret tespit edildi. Kuruluma devam ederseniz mevcut kurulum ve servislerin üzerine yazılacaktır. Devam etmek istiyor musunuz?"))
                 .build();
-            dialog.add_response("no", &t("Hayır"));
-            dialog.add_response("yes", &t("Evet"));
-            dialog.set_response_appearance("yes", ResponseAppearance::Suggested);
-            
-            let flow_clone = run_installation_flow.clone();
-            dialog.connect_response(None, move |d, response_id| {
+            warn_dialog.add_response("cancel", &t("Vazgeç"));
+            warn_dialog.add_response("continue", &t("Devam Et"));
+            warn_dialog.set_response_appearance("cancel", ResponseAppearance::Destructive);
+            warn_dialog.set_response_appearance("continue", ResponseAppearance::Suggested);
+            let start_cb = start_install_with_dns_check.clone();
+            warn_dialog.connect_response(None, move |d, response| {
                 d.close();
-                let set_dns = response_id == "yes";
-                flow_clone(set_dns);
+                if response == "continue" {
+                    start_cb();
+                }
             });
-            dialog.present();
+            warn_dialog.present();
         } else {
-             run_installation_flow(false);
+            start_install_with_dns_check();
         }
     });
     force_continue_button.connect_clicked(move |_| {
         nav_view_clone_for_force.replace(&[page2_clone_for_force.clone()]);
     });
-    let current_pid = Arc::new(Mutex::new(None::<u32>));
     let current_pid_cancel = current_pid.clone();
     let nav_view_clone_cancel = nav_view.clone();
-    let test_cancel_flag = Arc::new(AtomicBool::new(false));
     let test_cancel_flag_btn = test_cancel_flag.clone();
     let _test_cancel_flag_run = test_cancel_flag.clone();
     test_cancel_button.connect_clicked(move |_| {
@@ -1526,50 +2840,8 @@ fn build_ui(app: &Application) {
                                             nav_timer.pop();
                                             match result {
                                                 Ok(_) => {
-                                                    let mut child = list_box_timer.first_child();
-                                                    while let Some(widget) = child {
-                                                        let next = widget.next_sibling();
-                                                        list_box_timer.remove(&widget);
-                                                        child = next;
-                                                    }
-                                                    if let Ok(content) = fs::read_to_string(get_config_path()) {
-                                                        let trimmed = content.trim();
-                                                        if trimmed.starts_with('[') {
-                                                            let inner = &trimmed[1..trimmed.len()-1];
-                                                            let mut in_string = false;
-                                                            let mut current_strat = String::new();
-                                                            let mut strategies = Vec::new();
-                                                            for c in inner.chars() {
-                                                                if c == '"' {
-                                                                    in_string = !in_string;
-                                                                    if !in_string && !current_strat.is_empty() {
-                                                                        strategies.push(current_strat.clone());
-                                                                        current_strat.clear();
-                                                                    }
-                                                                } else if in_string {
-                                                                    if c != '\\' { 
-                                                                         current_strat.push(c); 
-                                                                    }
-                                                                }
-                                                            }
-                                                            for strat in strategies {
-                                                                let child_label = Label::builder()
-                                                                    .label(&strat)
-                                                                    .wrap(true)
-                                                                    .max_width_chars(50)
-                                                                    .xalign(0.0)
-                                                                    .build();
-                                                                let check = CheckButton::builder()
-                                                                    .child(&child_label)
-                                                                    .margin_top(10)
-                                                                    .margin_bottom(10)
-                                                                    .margin_start(10)
-                                                                    .margin_end(10)
-                                                                    .build();
-                                                                list_box_timer.append(&check);
-                                                            }
-                                                        }
-                                                    }
+                                                    let loaded = load_profile_strategies(get_active_profile_id());
+                                                    populate_strategies_box(&list_box_timer, &loaded);
                                                     nav_mgmt_t.replace(&[page_mgmt_t.clone()]);
                                                 },
                                                 Err(e) => {
@@ -1646,7 +2918,7 @@ fn build_ui(app: &Application) {
         file_dialog.open(Some(&window_clone_import), None::<&gtk::gio::Cancellable>, move |result| {
             if let Ok(file) = result {
                 if let Some(path) = file.path() {
-                    match validate_and_copy_strategies(&path) {
+                    match validate_and_copy_strategies(&path, 1) {
                         Ok(_) => {
                             cf.store(false, Ordering::Relaxed);
                             lbl_title.set_label(&t("Zapret Kuruluyor..."));
@@ -1685,50 +2957,8 @@ fn build_ui(app: &Application) {
                                                 nav_timer.pop();
                                                 match result {
                                                     Ok(_) => {
-                                                        let mut child = list_box_mgmt_import_timer.first_child();
-                                                        while let Some(widget) = child {
-                                                            let next = widget.next_sibling();
-                                                            list_box_mgmt_import_timer.remove(&widget);
-                                                            child = next;
-                                                        }
-                                                        if let Ok(content) = fs::read_to_string(get_config_path()) {
-                                                            let trimmed = content.trim();
-                                                            if trimmed.starts_with('[') {
-                                                                let inner = &trimmed[1..trimmed.len()-1];
-                                                                let mut in_string = false;
-                                                                let mut current_strat = String::new();
-                                                                let mut strategies = Vec::new();
-                                                                for c in inner.chars() {
-                                                                    if c == '"' {
-                                                                        in_string = !in_string;
-                                                                        if !in_string && !current_strat.is_empty() {
-                                                                            strategies.push(current_strat.clone());
-                                                                            current_strat.clear();
-                                                                        }
-                                                                    } else if in_string {
-                                                                        if c != '\\' { 
-                                                                             current_strat.push(c); 
-                                                                        }
-                                                                    }
-                                                                }
-                                                                for strat in strategies {
-                                                                    let child_label = Label::builder()
-                                                                        .label(&strat)
-                                                                        .wrap(true)
-                                                                        .max_width_chars(50)
-                                                                        .xalign(0.0)
-                                                                        .build();
-                                                                    let check = CheckButton::builder()
-                                                                        .child(&child_label)
-                                                                        .margin_top(10)
-                                                                        .margin_bottom(10)
-                                                                        .margin_start(10)
-                                                                        .margin_end(10)
-                                                                        .build();
-                                                                    list_box_mgmt_import_timer.append(&check);
-                                                                }
-                                                            }
-                                                        }
+                                                        let loaded = load_profile_strategies(get_active_profile_id());
+                                                        populate_strategies_box(&list_box_mgmt_import_timer, &loaded);
                                                         nav_mgmt_import_timer.replace(&[page_mgmt_import_timer.clone()]);
                                                     },
                                                     Err(e) => {
@@ -1846,7 +3076,7 @@ fn build_ui(app: &Application) {
             let sender_blockcheck = sender.clone();
             let sender_install = sender.clone();
             thread::spawn(move || {
-                run_blockcheck_process(d_vec, repeats, scan_level, sender_blockcheck, cf_thread);
+                run_blockcheck_process(d_vec, repeats, scan_level, sender_blockcheck, cf_thread, None);
             });
             let pid_timer = pid.clone();
             let nav_timer = nav.clone();
@@ -1938,50 +3168,8 @@ fn build_ui(app: &Application) {
                                 }
                                 match result {
                                     Ok(_) => {
-                                        let mut child = list_box_mgmt_timer.first_child();
-                                        while let Some(widget) = child {
-                                            let next = widget.next_sibling();
-                                            list_box_mgmt_timer.remove(&widget);
-                                            child = next;
-                                        }
-                                        if let Ok(content) = fs::read_to_string(get_config_path()) {
-                                            let trimmed = content.trim();
-                                            if trimmed.starts_with('[') {
-                                                let inner = &trimmed[1..trimmed.len()-1];
-                                                let mut in_string = false;
-                                                let mut current_strat = String::new();
-                                                let mut strategies = Vec::new();
-                                                for c in inner.chars() {
-                                                    if c == '"' {
-                                                        in_string = !in_string;
-                                                        if !in_string && !current_strat.is_empty() {
-                                                            strategies.push(current_strat.clone());
-                                                            current_strat.clear();
-                                                        }
-                                                    } else if in_string {
-                                                        if c != '\\' { 
-                                                            current_strat.push(c); 
-                                                        }
-                                                    }
-                                                }
-                                                for strat in strategies {
-                                                    let child_label = Label::builder()
-                                                        .label(&strat)
-                                                        .wrap(true)
-                                                        .max_width_chars(50)
-                                                        .xalign(0.0)
-                                                        .build();
-                                                    let check = CheckButton::builder()
-                                                        .child(&child_label)
-                                                        .margin_top(10)
-                                                        .margin_bottom(10)
-                                                        .margin_start(10)
-                                                        .margin_end(10)
-                                                        .build();
-                                                    list_box_mgmt_timer.append(&check);
-                                                }
-                                            }
-                                        }
+                                        let loaded = load_profile_strategies(get_active_profile_id());
+                                        populate_strategies_box(&list_box_mgmt_timer, &loaded);
                                         delete_local_zapret_folder();
                                         nav_mgmt_timer.replace(&[page_mgmt_timer.clone()]);
                                     },
@@ -2009,59 +3197,44 @@ fn build_ui(app: &Application) {
     });
     window.present();
 }
-fn validate_and_copy_strategies(path: &Path) -> io::Result<()> {
+fn validate_and_copy_strategies(path: &Path, target_profile_id: usize) -> io::Result<()> {
     let content = fs::read_to_string(path)?;
-    let trimmed = content.trim();
-    if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, t("Dosya geçerli bir JSON listesi (array) formatında değil.")));
-    }
-    let mut in_string = false;
-    let mut escaped = false;
-    let mut current_string = String::new();
-    let mut strategies = Vec::new();
-    for c in trimmed[1..trimmed.len()-1].chars() {
-        if in_string {
-            if escaped {
-                current_string.push(c);
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == '"' {
-                in_string = false;
-                let mut strategy = current_string.clone();
-                let zapret_base_str = get_zapret_path().to_string_lossy().to_string();
-                strategy = strategy.replace(&zapret_base_str, "/opt/zapret");
-                
-                if let Some(start) = strategy.find("/home/") {
-                    if let Some(end) = strategy[start..].find("/zapret/") {
-                        let old_path = &strategy[start..start + end + 7];
-                        strategy = strategy.replace(old_path, "/opt/zapret");
-                    }
-                }
-                
-                strategies.push(strategy);
-                current_string.clear();
-            } else {
-                current_string.push(c);
-            }
-        } else {
-            if c == '"' {
-                in_string = true;
-            }
-        }
-    }
+    let strategies = parse_strategies_from_content(&content);
     if strategies.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidData, t("Dosya içerisinde strateji bulunamadı.")));
     }
     for s in &strategies {
-        if !s.trim().starts_with("--") {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, t("Geçersiz strateji: '{}'. Stratejiler '--' ile başlamalıdır.").replace("{}", &s)));
+        if !s.strategy.trim().starts_with("--") {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, t("Geçersiz strateji: '{}'. Stratejiler '--' ile başlamalıdır.").replace("{}", &s.strategy)));
         }
     }
-    save_strategies_to_json(&strategies)?;
+    save_profile_strategies(target_profile_id, &strategies)?;
+    if target_profile_id != 1 && !get_profile_path(1).exists() {
+        let _ = save_profile_strategies(1, &strategies);
+    }
     Ok(())
 }
+fn format_strategy_with_hostlist(strategy_str: &str) -> String {
+    if strategy_str.contains("<HOSTLIST>") || strategy_str.contains("<HOSTLIST_NOAUTO>") {
+        return strategy_str.to_string();
+    }
+    let parts: Vec<&str> = strategy_str.split("--new").collect();
+    let formatted_parts: Vec<String> = parts.iter()
+        .map(|p| {
+            let trimmed = p.trim();
+            if trimmed.is_empty() {
+                String::new()
+            } else {
+                format!("{} <HOSTLIST>", trimmed)
+            }
+        })
+        .filter(|p| !p.is_empty())
+        .collect();
+    formatted_parts.join(" --new ")
+}
+
 fn update_config_content(content: &str, new_opt: &str) -> String {
+    let formatted_opt = format_strategy_with_hostlist(new_opt);
     let var_name = "NFQWS_OPT=\"";
     if let Some(start_idx) = content.find(var_name) {
         let content_after_start = &content[start_idx + var_name.len()..];
@@ -2084,7 +3257,7 @@ fn update_config_content(content: &str, new_opt: &str) -> String {
         if found {
             let prefix = &content[..start_idx];
             let suffix = &content_after_start[end_offset + 1..];
-            return format!("{}NFQWS_OPT=\"{}\"{}", prefix, new_opt, suffix);
+            return format!("{}NFQWS_OPT=\"{}\"{}", prefix, formatted_opt, suffix);
         }
     }
     let var_name_single = "NFQWS_OPT='";
@@ -2093,15 +3266,22 @@ fn update_config_content(content: &str, new_opt: &str) -> String {
          if let Some(end_offset) = content_after_start.find('\'') {
              let prefix = &content[..start_idx];
              let suffix = &content_after_start[end_offset + 1..];
-             return format!("{}NFQWS_OPT=\"{}\"{}", prefix, new_opt, suffix);
+             return format!("{}NFQWS_OPT=\"{}\"{}", prefix, formatted_opt, suffix);
          }
     }
-    format!("{}\nNFQWS_OPT=\"{}\"\n", content, new_opt)
+    format!("{}\nNFQWS_OPT=\"{}\"\n", content, formatted_opt)
 }
-fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: String, sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<AtomicBool>) {
+fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: String, sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<AtomicBool>, custom_zapret_dir: Option<PathBuf>) {
     let domains_str = domains.join(" ");
     log_to_file(&format!("Blockcheck started. Level: {}, Repeat: {}, Domains: {}", scan_level, repeats, domains_str));
-    let zapret_dir = get_zapret_path();
+
+    let _ = Command::new("pkexec")
+        .arg("sh")
+        .arg("-c")
+        .arg("systemctl stop zapret 2>/dev/null || rc-service zapret stop 2>/dev/null || sv down zapret 2>/dev/null || service zapret stop 2>/dev/null || dinitctl stop zapret 2>/dev/null || true")
+        .output();
+
+    let zapret_dir = custom_zapret_dir.unwrap_or_else(|| get_zapret_path());
     let blockcheck_script = zapret_dir.join("blockcheck.sh");
     if !blockcheck_script.exists() {
         let err_msg = t("blockcheck.sh bulunamadı: {}").replace("{}", &blockcheck_script.display().to_string());
@@ -2341,35 +3521,15 @@ fn apply_preset_strategies() -> io::Result<()> {
 }
 
 fn save_strategies_to_json(strategies: &Vec<String>) -> io::Result<()> {
-    let path = get_config_path();
-    let file_res = fs::File::create(&path);
-    let mut file = match file_res {
-        Ok(f) => f,
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
-                let cfg_dir = proj_dirs.config_dir();
-                let _ = Command::new("pkexec")
-                    .arg("chmod")
-                    .arg("-R")
-                    .arg("777")
-                    .arg(cfg_dir)
-                    .output();
-            }
-            fs::File::create(&path)?
-        },
-        Err(e) => return Err(e),
-    };
-    writeln!(file, "[")?;
-    for (i, s) in strategies.iter().enumerate() {
-        let escaped = s.replace("\"", "\\\"");
-        write!(file, "  \"{}\"", escaped)?;
-        if i < strategies.len() - 1 {
-            writeln!(file, ",")?;
-        } else {
-            writeln!(file, "")?;
-        }
+    let active_id = get_active_profile_id();
+    let profile_strats: Vec<ProfileStrategy> = strategies.iter().map(|s| ProfileStrategy {
+        strategy: s.clone(),
+        active: true,
+    }).collect();
+    save_profile_strategies(active_id, &profile_strats)?;
+    if active_id != 1 {
+        let _ = save_profile_strategies(1, &profile_strats);
     }
-    writeln!(file, "]")?;
     Ok(())
 }
 fn add_entry_row(container: &Box, add_btn: &Button, grab_focus: bool) {
@@ -2388,6 +3548,29 @@ fn add_entry_row(container: &Box, add_btn: &Button, grab_focus: bool) {
     container.append(add_btn);
     if grab_focus {
         entry.grab_focus();
+    }
+}
+
+fn populate_hostlist_entries(container: &Box, add_btn: &Button, domains: &[String]) {
+    while let Some(child) = container.first_child() {
+        container.remove(&child);
+    }
+    if domains.is_empty() {
+        add_entry_row(container, add_btn, false);
+    } else {
+        for d in domains {
+            let entry = Entry::builder()
+                .text(d)
+                .placeholder_text(&t("Alan adı girin..."))
+                .build();
+            let container_clone = container.clone();
+            let add_btn_clone = add_btn.clone();
+            entry.connect_activate(move |_| {
+                add_entry_row(&container_clone, &add_btn_clone, true);
+            });
+            container.append(&entry);
+        }
+        container.append(add_btn);
     }
 }
 fn check_processes() -> Vec<String> {
@@ -2464,6 +3647,24 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
         let zapret_full_path = get_zapret_path();
         let zapret_path_str = zapret_full_path.to_string_lossy().to_string();
         if cancel_flag_thread.load(Ordering::Relaxed) { return; }
+        root_commands.push_str("systemctl stop zapret 2>/dev/null || true\n");
+        root_commands.push_str("systemctl disable zapret 2>/dev/null || true\n");
+        root_commands.push_str("systemctl disable zapret-custom 2>/dev/null || true\n");
+        root_commands.push_str("rm -f /etc/systemd/system/zapret.service /etc/systemd/system/zapret-custom.service /lib/systemd/system/zapret.service 2>/dev/null || true\n");
+        root_commands.push_str("systemctl daemon-reload 2>/dev/null || true\n");
+        root_commands.push_str("rc-service zapret stop 2>/dev/null || true\n");
+        root_commands.push_str("rc-update del zapret default 2>/dev/null || rc-update del zapret 2>/dev/null || true\n");
+        root_commands.push_str("rm -f /etc/init.d/zapret 2>/dev/null || true\n");
+        root_commands.push_str("sv down zapret 2>/dev/null || true\n");
+        root_commands.push_str("rm -rf /var/service/zapret /etc/service/zapret /run/runit/service/zapret 2>/dev/null || true\n");
+        root_commands.push_str("service zapret stop 2>/dev/null || /etc/init.d/zapret stop 2>/dev/null || true\n");
+        root_commands.push_str("if command -v update-rc.d >/dev/null 2>&1; then update-rc.d -f zapret remove 2>/dev/null || true; elif command -v chkconfig >/dev/null 2>&1; then chkconfig --del zapret 2>/dev/null || true; fi\n");
+        root_commands.push_str("rm -f /etc/init.d/zapret /etc/rc.d/zapret 2>/dev/null || true\n");
+        root_commands.push_str("dinitctl stop zapret 2>/dev/null || true\n");
+        root_commands.push_str("dinitctl disable zapret 2>/dev/null || true\n");
+        root_commands.push_str("rm -f /etc/dinit.d/zapret /etc/dinit.d/boot.d/zapret 2>/dev/null || true\n");
+        root_commands.push_str("killall -9 nfqws tpws dvtws 2>/dev/null || pkill -9 -x nfqws 2>/dev/null || pkill -9 -x tpws 2>/dev/null || true\n");
+
         if overwrite && zapret_full_path.exists() {
             root_commands.push_str("echo \"STATUS:CLEANING\"\n");
             root_commands.push_str(&format!("rm -rf \"{}\"\n", zapret_path_str));
@@ -2879,6 +4080,39 @@ if [ -n "$PKEXEC_UID" ]; then
 fi
 chmod -R 777 /home/*/.config/zapret-gtk 2>/dev/null || true
 "#
+}
+
+fn check_zapret_update_available() -> Option<bool> {
+    let zapret_dir = Path::new("/opt/zapret");
+    if !zapret_dir.exists() {
+        return None;
+    }
+    let local_out = Command::new("git")
+        .args(["-c", "safe.directory=/opt/zapret", "-C", "/opt/zapret", "rev-parse", "HEAD"])
+        .output()
+        .ok()?;
+    if !local_out.status.success() {
+        return None;
+    }
+    let local_hash = String::from_utf8_lossy(&local_out.stdout).trim().to_string();
+    if local_hash.is_empty() {
+        return None;
+    }
+
+    let remote_out = Command::new("git")
+        .args(["ls-remote", "https://github.com/bol-van/zapret.git", "HEAD"])
+        .output()
+        .ok()?;
+    if !remote_out.status.success() {
+        return None;
+    }
+    let remote_str = String::from_utf8_lossy(&remote_out.stdout);
+    let remote_hash = remote_str.split_whitespace().next()?.trim().to_string();
+    if remote_hash.is_empty() {
+        return None;
+    }
+
+    Some(local_hash != remote_hash)
 }
 
 fn get_init_system() -> String {
