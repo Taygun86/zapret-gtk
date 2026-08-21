@@ -38,6 +38,14 @@ EOF
 sudo dnf install zapret-gtk
 ```
 
+#### openSUSE (Leap / Tumbleweed)
+Add the repository and install the package:
+```bash
+sudo zypper addrepo --no-gpgcheck https://taygun86.github.io/taygun86-repo/rpm taygun86
+sudo zypper refresh
+sudo zypper install zapret-gtk
+```
+
 #### Arch Linux / Manjaro / CachyOS / EndeavourOS
 Install from AUR:
 ```bash
@@ -77,7 +85,7 @@ sudo apt update
 sudo apt install zapret-gtk
 ```
 
-#### Fedora / OpenSUSE / RHEL
+#### Fedora / RHEL
 Depoyu ekleyin ve paketi yükleyin:
 ```bash
 sudo tee /etc/yum.repos.d/taygun86.repo <<EOF
@@ -89,6 +97,14 @@ gpgcheck=0
 EOF
 
 sudo dnf install zapret-gtk
+```
+
+#### openSUSE (Leap / Tumbleweed)
+Depoyu ekleyin ve paketi yükleyin:
+```bash
+sudo zypper addrepo --no-gpgcheck https://taygun86.github.io/taygun86-repo/rpm taygun86
+sudo zypper refresh
+sudo zypper install zapret-gtk
 ```
 
 #### Arch Linux / Manjaro / CachyOS / EndeavourOS
@@ -130,7 +146,7 @@ sudo apt update
 sudo apt install zapret-gtk
 ```
 
-#### Fedora / OpenSUSE / RHEL
+#### Fedora / RHEL
 Добавить репозиторий и установить пакет:
 ```bash
 sudo tee /etc/yum.repos.d/taygun86.repo <<EOF
@@ -142,6 +158,14 @@ gpgcheck=0
 EOF
 
 sudo dnf install zapret-gtk
+```
+
+#### openSUSE (Leap / Tumbleweed)
+Добавить репозиторий и установить пакет:
+```bash
+sudo zypper addrepo --no-gpgcheck https://taygun86.github.io/taygun86-repo/rpm taygun86
+sudo zypper refresh
+sudo zypper install zapret-gtk
 ```
 
 #### Arch Linux / Manjaro / CachyOS / EndeavourOS
