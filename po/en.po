@@ -363,5 +363,116 @@ msgstr "Preparing Zapret files and configuration.\nPlease wait."
 msgid "Kurulum hazırlanıyor..."
 msgstr "Preparing installation..."
 
+msgid "Güncelle"
+msgstr "Update"
+
+msgid "Güncelleme Mevcut"
+msgstr "Update Available"
+
+msgid "Güncel"
+msgstr "Up to date"
+
+msgid "Zapret güncel."
+msgstr "Zapret is up to date."
+
+msgid "Yeni bir Zapret güncellemesi mevcut!"
+msgstr "A new Zapret update is available!"
+
+msgid "Güncelleniyor..."
+msgstr "Updating..."
+
+msgid "Zapret Güncellemesi"
+msgstr "Zapret Update"
+
+msgid "Zapret'in en son sürümü indirilip yeniden derlenecek ve servis yeniden başlatılacak. Devam edilsin mi?"
+msgstr "The latest version of Zapret will be downloaded, recompiled, and the service will be restarted. Do you want to continue?"
+
+msgid "Zapret başarıyla en son sürüme güncellendi."
+msgstr "Zapret was successfully updated to the latest version."
+
+msgid "Güncelleme Hatası"
+msgstr "Update Error"
+
+msgid "Zapret güncellenirken hata oluştu: {}"
+msgstr "An error occurred while updating Zapret: {}"
+
+msgid "Çalışıyor (Active) • Güncel"
+msgstr "Running (Active) • Up to date"
+
+msgid "Çalışıyor (Active) • Güncelleme Mevcut"
+msgstr "Running (Active) • Update Available"
+
+msgid "Durdu ({}) • Güncel"
+msgstr "Stopped ({}) • Up to date"
+
+msgid "Durdu ({}) • Güncelleme Mevcut"
+msgstr "Stopped ({}) • Update Available"
+
+msgid "Strateji Ara"
+msgstr "Search Strategies"
+
+msgid "Strateji Araması"
+msgstr "Strategy Search"
+
+msgid "Mevcut kayıtlı stratejilerinizin üzerine yeni bulunacak stratejiler yazılacaktır. Devam etmek istiyor musunuz?"
+msgstr "The newly found strategies will overwrite your existing saved strategies. Do you want to continue?"
+
+msgid "Yeni stratejiler başarıyla bulundu ve kaydedildi. Ana ekrandan istediğiniz stratejileri seçip 'Uygula' butonuna basarak aktifleştirebilirsiniz."
+msgstr "New strategies have been successfully found and saved. You can select desired strategies and click 'Apply' on the main screen to activate them."
+
+msgid "Hazır stratejiler kaydedildi ve otomatik olarak uygulandı."
+msgstr "Preset strategies have been saved and applied automatically."
+
+msgid "Durdur ve Devam Et"
+msgstr "Stop and Continue"
+
+msgid "Profil"
+msgstr "Profile"
+
+msgid "Profil {} stratejileri uygulandı ve Zapret servisi yeniden başlatıldı."
+msgstr "Profile {} strategies applied and Zapret service restarted."
+
+msgid "Profil {} için mevcut kayıtlı stratejilerinizin üzerine yeni bulunacak stratejiler yazılacaktır. Devam etmek istiyor musunuz?"
+msgstr "The newly found strategies will overwrite your existing saved strategies for Profile {}. Do you want to continue?"
+
+msgid "Devam Et"
+msgstr "Continue"
+
+msgid "Dosya okunamadı: {}"
+msgstr "File could not be read: {}"
+
+msgid "Zapret DPI bypass yazılımını kurmak ve yapılandırmak için başlayın."
+msgstr "Start to install and configure Zapret DPI bypass software."
+
+msgid "Hostlist"
+msgstr "Hostlist"
+
+msgid "Hostlist ({})"
+msgstr "Hostlist ({})"
+
+msgid "Zapret'in yalnızca belirli web sitelerinde çalışmasını istiyorsanız, bu sitelerin alan adlarını her satıra bir tane gelecek şekilde yazın. Boş bırakırsanız filtreleme tüm sitelere uygulanır."
+msgstr "If you want Zapret to operate only on specific websites, enter their domain names one per line. If left empty, filtering will be applied to all websites."
+
+msgid "Kaydet ve Uygula"
+msgstr "Save and Apply"
+
+msgid "Profil {} hostlist kaydedildi ve uygulandı."
+msgstr "Profile {} hostlist saved and applied."
+
+msgid "Mevcut Kurulum Tespit Edildi"
+msgstr "Existing Installation Detected"
+
+msgid "Sistemde önceden kurulmuş bir Zapret tespit edildi. Kuruluma devam ederseniz mevcut kurulum ve servislerin üzerine yazılacaktır. Devam etmek istiyor musunuz?"
+msgstr "An existing Zapret installation was detected on the system. If you proceed, the existing installation and services will be overwritten. Do you want to continue?"
+
+
+
+
+
+
+
+
+
+
 
 
