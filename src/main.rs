@@ -519,7 +519,7 @@ enum TestMsg {
 fn main() {
     rotate_logs();
     init_i18n();
-    log_to_file("Application started (v0.6.0)");
+    log_to_file("Application started (v0.5.1)");
     ensure_polkit_rules_installed();
     let app = Application::builder()
         .application_id("com.ornek.zapret-gtk")
@@ -1994,7 +1994,7 @@ fn build_ui(app: &Application) {
             .transient_for(&win_about)
             .modal(true)
             .program_name("Zapret GTK")
-            .version("0.6 Beta")
+            .version("0.5.1")
             .logo(&texture)
             .comments(&t("Zapret için modern GTK4 arayüzü."))
             .website("https://github.com/Taygun86/zapret-gtk")
