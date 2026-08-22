@@ -272,23 +272,7 @@ fn extract_strategies_from_list_box(list_box: &ListBox) -> Vec<ProfileStrategy> 
 
 fn save_profile_strategies(profile_id: usize, strategies: &[ProfileStrategy]) -> io::Result<()> {
     let path = get_profile_path(profile_id);
-    let file_res = fs::File::create(&path);
-    let mut file = match file_res {
-        Ok(f) => f,
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
-                let cfg_dir = proj_dirs.config_dir();
-                let _ = Command::new("pkexec")
-                    .arg("chmod")
-                    .arg("-R")
-                    .arg("777")
-                    .arg(cfg_dir)
-                    .output();
-            }
-            fs::File::create(&path)?
-        },
-        Err(e) => return Err(e),
-    };
+    let mut file = fs::File::create(&path)?;
     writeln!(file, "[")?;
     for (i, s) in strategies.iter().enumerate() {
         let escaped = s.strategy.replace("\"", "\\\"");
@@ -392,49 +376,85 @@ fn extract_nfqws_opt(content: &str) -> Option<String> {
 
 fn apply_profile_hostlist_to_zapret(profile_id: usize) -> io::Result<()> {
     let domains = load_profile_hostlist(profile_id);
-    let temp_hosts = "/tmp/zapret_hosts_user_new.txt";
-    let temp_cfg = "/tmp/zapret_config_new.txt";
+    let runtime_dir = get_secure_runtime_dir();
+    let temp_hosts = runtime_dir.join("zapret_hosts_new");
+    let temp_cfg = runtime_dir.join("zapret_config_new");
     
     let mut hosts_content = String::new();
     for d in &domains {
         hosts_content.push_str(d);
         hosts_content.push('\n');
     }
-    fs::write(temp_hosts, &hosts_content)?;
+    fs::write(&temp_hosts, &hosts_content)?;
 
     let mode_filter = if domains.is_empty() { "none" } else { "hostlist" };
     let config_path = Path::new("/opt/zapret/config");
-    let content_res = fs::read_to_string(config_path).or_else(|_| {
-        let out = Command::new("pkexec").arg("cat").arg("/opt/zapret/config").output();
+    let content = fs::read_to_string(config_path).or_else(|_| {
+        let out = Command::new("pkexec")
+            .arg(get_zapret_control_path())
+            .arg("cat-config")
+            .output();
         match out {
             Ok(o) if o.status.success() => Ok(String::from_utf8_lossy(&o.stdout).to_string()),
-            _ => Err(io::Error::new(io::ErrorKind::PermissionDenied, "Dosya okunamadı")),
+            _ => Err(io::Error::new(io::ErrorKind::NotFound, "Config read failed")),
         }
-    });
+    })?;
 
-    if let Ok(content) = content_res {
-        let mut new_content = update_config_mode_filter(&content, mode_filter);
-        if let Some(opt_val) = extract_nfqws_opt(&new_content) {
-            let formatted_opt = format_strategy_with_hostlist(&opt_val);
-            new_content = update_config_content(&new_content, &formatted_opt);
-        }
-        fs::write(temp_cfg, &new_content)?;
-        let init = get_init_system();
-        let restart_cmd = if init == "openrc" {
-            "rc-service zapret restart"
-        } else if init == "runit" {
-            "sv restart zapret"
-        } else if init == "sysvinit" {
-            "service zapret restart"
-        } else if init == "dinit" {
-            "dinitctl restart zapret"
-        } else {
-            "systemctl restart zapret"
-        };
-        let cmd = format!("mv -f {} /opt/zapret/ipset/zapret-hosts-user.txt && mv -f {} /opt/zapret/config && {}", temp_hosts, temp_cfg, restart_cmd);
-        let _ = Command::new("pkexec").arg("sh").arg("-c").arg(cmd).output();
+    let mut new_content = update_config_mode_filter(&content, mode_filter);
+    if let Some(opt_val) = extract_nfqws_opt(&new_content) {
+        let formatted_opt = format_strategy_with_hostlist(&opt_val);
+        new_content = update_config_content(&new_content, &formatted_opt);
     }
+    fs::write(&temp_cfg, &new_content)?;
+    let _ = Command::new("pkexec")
+        .arg(get_zapret_control_path())
+        .arg("apply-config")
+        .arg(&temp_cfg)
+        .arg(&temp_hosts)
+        .output();
     Ok(())
+}
+
+fn get_zapret_control_path() -> &'static str {
+    if Path::new("/usr/bin/zapret-control").exists() {
+        "/usr/bin/zapret-control"
+    } else {
+        "/opt/zapret/zapret-control.sh"
+    }
+}
+
+fn reset_profile_ui_to_1(current_profile_id: &Rc<Cell<usize>>, profile_btns: &[Button]) {
+    current_profile_id.set(1);
+    save_active_profile_id(1);
+    for (idx, b) in profile_btns.iter().enumerate() {
+        if idx == 0 {
+            b.add_css_class("suggested-action");
+        } else {
+            b.remove_css_class("suggested-action");
+        }
+    }
+}
+
+fn get_secure_runtime_dir() -> PathBuf {
+    let base_dir = std::env::var("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
+                proj_dirs.cache_dir().join("runtime")
+            } else if let Ok(home) = std::env::var("HOME") {
+                PathBuf::from(home).join(".cache").join("zapret-gtk").join("runtime")
+            } else {
+                std::env::temp_dir()
+            }
+        });
+    let runtime_dir = base_dir.join("zapret-gtk");
+    let _ = fs::create_dir_all(&runtime_dir);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&runtime_dir, fs::Permissions::from_mode(0o700));
+    }
+    runtime_dir
 }
 
 fn get_log_path() -> PathBuf {
@@ -518,13 +538,7 @@ fn delete_local_zapret_folder() {
         if local_zapret.exists() {
             println!("Deleting local zapret folder: {:?}", local_zapret);
             log_to_file(&format!("Deleting local zapret folder: {:?}", local_zapret));
-            if let Err(_) = fs::remove_dir_all(&local_zapret) {
-                 let _ = Command::new("pkexec")
-                    .arg("rm")
-                    .arg("-rf")
-                    .arg(local_zapret)
-                    .output();
-            }
+            let _ = fs::remove_dir_all(&local_zapret);
         }
     });
 }
@@ -1070,6 +1084,7 @@ fn build_ui(app: &Application) {
         profile_buttons.push(btn);
     }
     bottom_box_mgmt.append(&profile_buttons_box);
+    let profile_btns_rc = Rc::new(profile_buttons);
 
     let mgmt_buttons_box = Box::new(Orientation::Horizontal, 10);
     mgmt_buttons_box.set_halign(gtk::Align::Center);
@@ -1321,51 +1336,30 @@ fn build_ui(app: &Application) {
     glib::timeout_add_local(Duration::from_secs(10), move || {
         let init_sys = get_init_system();
         let mut is_active = false;
-        let mut status_text = String::from("unknown");
         if init_sys == "systemd" {
             if let Ok(o) = Command::new("systemctl").arg("is-active").arg("zapret").output() {
-                status_text = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                if status_text == "active" { is_active = true; }
+                if String::from_utf8_lossy(&o.stdout).trim() == "active" { is_active = true; }
             }
         } else if init_sys == "openrc" {
             if let Ok(o) = Command::new("rc-service").arg("zapret").arg("status").output() {
-                if o.status.success() { 
-                    is_active = true; 
-                    status_text = "active".to_string();
-                } else {
-                    status_text = "stopped".to_string();
-                }
+                if o.status.success() { is_active = true; }
             }
         } else if init_sys == "runit" {
             if let Ok(o) = Command::new("sv").arg("status").arg("zapret").output() {
-                let out = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                if out.starts_with("run:") { 
-                    is_active = true; 
-                    status_text = "active".to_string();
-                } else {
-                    status_text = out;
-                }
+                if String::from_utf8_lossy(&o.stdout).trim().starts_with("run:") { is_active = true; }
             }
         } else if init_sys == "sysvinit" {
             if let Ok(o) = Command::new("service").arg("zapret").arg("status").output() {
-                let out = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                if out.contains("is running") || o.status.success() {
-                    is_active = true; 
-                    status_text = "active".to_string();
-                } else {
-                    status_text = "stopped".to_string();
-                }
+                let out = String::from_utf8_lossy(&o.stdout);
+                if out.contains("is running") || o.status.success() { is_active = true; }
             }
         } else if init_sys == "dinit" {
             if let Ok(o) = Command::new("dinitctl").arg("status").arg("zapret").output() {
-                let out = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                if out.contains("State: STARTED") {
-                    is_active = true; 
-                    status_text = "active".to_string();
-                } else {
-                    status_text = "stopped".to_string();
-                }
+                let out = String::from_utf8_lossy(&o.stdout);
+                if out.contains("State: STARTED") { is_active = true; }
             }
+        } else if let Ok(o) = Command::new("pgrep").arg("-x").arg("nfqws").output() {
+            if o.status.success() { is_active = true; }
         }
 
         let s_check = upd_check_sender_timer.clone();
@@ -1400,7 +1394,7 @@ fn build_ui(app: &Application) {
             start_btn_timer.set_visible(false);
             stop_btn_timer.set_visible(true);
         } else {
-            status_label_mgmt_timer.set_label(&format!("{}{}", t("Durdu ({})").replace("{}", &status_text), update_suffix));
+            status_label_mgmt_timer.set_label(&format!("{}{}", t("Durdu"), update_suffix));
             status_label_mgmt_timer.add_css_class("error");
             status_label_mgmt_timer.remove_css_class("success");
             start_btn_timer.set_visible(true);
@@ -1446,33 +1440,34 @@ fn build_ui(app: &Application) {
 
     let current_pid = Arc::new(Mutex::new(None::<u32>));
     let test_cancel_flag = Arc::new(AtomicBool::new(false));
-    start_service_btn.connect_clicked(move |_| {
-         let init = get_init_system();
-         if init == "openrc" {
-             let _ = Command::new("pkexec").arg("rc-service").arg("zapret").arg("start").spawn();
-         } else if init == "runit" {
-             let _ = Command::new("pkexec").arg("sv").arg("up").arg("zapret").spawn();
-         } else if init == "sysvinit" {
-             let _ = Command::new("pkexec").arg("service").arg("zapret").arg("start").spawn();
-         } else if init == "dinit" {
-             let _ = Command::new("pkexec").arg("dinitctl").arg("start").arg("zapret").spawn();
-         } else {
-             let _ = Command::new("pkexec").arg("systemctl").arg("start").arg("zapret").spawn();
-         }
+    let install_child_pid = Arc::new(Mutex::new(None::<u32>));
+    let install_cancel_flag = Arc::new(AtomicBool::new(false));
+
+    let pid_on_close = current_pid.clone();
+    let cf_on_close = test_cancel_flag.clone();
+    let install_pid_on_close = install_child_pid.clone();
+    let install_cf_on_close = install_cancel_flag.clone();
+
+    window.connect_close_request(move |_| {
+        cf_on_close.store(true, Ordering::Relaxed);
+        install_cf_on_close.store(true, Ordering::Relaxed);
+        let pid_opt = pid_on_close.lock().ok().and_then(|g| *g);
+        let inst_pid_opt = install_pid_on_close.lock().ok().and_then(|g| *g);
+        let target_pid = pid_opt.or(inst_pid_opt).unwrap_or(0);
+        let _ = Command::new("pkexec")
+            .arg(get_zapret_control_path())
+            .arg("kill-pid")
+            .arg(target_pid.to_string())
+            .spawn();
+        glib::Propagation::Proceed
     });
+
+    start_service_btn.connect_clicked(move |_| {
+         let _ = Command::new("pkexec").arg(get_zapret_control_path()).arg("start").spawn();
+    });
+
     stop_service_btn.connect_clicked(move |_| {
-         let init = get_init_system();
-         if init == "openrc" {
-             let _ = Command::new("pkexec").arg("rc-service").arg("zapret").arg("stop").spawn();
-         } else if init == "runit" {
-             let _ = Command::new("pkexec").arg("sv").arg("down").arg("zapret").spawn();
-         } else if init == "sysvinit" {
-             let _ = Command::new("pkexec").arg("service").arg("zapret").arg("stop").spawn();
-         } else if init == "dinit" {
-             let _ = Command::new("pkexec").arg("dinitctl").arg("stop").arg("zapret").spawn();
-         } else {
-             let _ = Command::new("pkexec").arg("systemctl").arg("stop").arg("zapret").spawn();
-         }
+         let _ = Command::new("pkexec").arg(get_zapret_control_path()).arg("stop").spawn();
     });
 
     let win_update = window.clone();
@@ -1539,22 +1534,9 @@ fn build_ui(app: &Application) {
                 let s_thread = s_action.clone();
                 
                 thread::spawn(move || {
-                    let update_cmd = r#"
-set -e
-cd /opt/zapret
-git config --global --add safe.directory /opt/zapret || true
-git fetch origin
-git reset --hard origin/master || git pull origin master
-make -B
-if [ -f /opt/zapret/install_bin.sh ]; then
-    sh /opt/zapret/install_bin.sh || true
-fi
-systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null || sv restart zapret 2>/dev/null || service zapret restart 2>/dev/null || dinitctl restart zapret 2>/dev/null || true
-"#;
                     let res = Command::new("pkexec")
-                        .arg("sh")
-                        .arg("-c")
-                        .arg(update_cmd)
+                        .arg(get_zapret_control_path())
+                        .arg("update")
                         .output();
 
                     match res {
@@ -1650,9 +1632,8 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
     let page_rescan_stop = page_rescan.clone();
     stop_continue_btn_rescan.connect_clicked(move |_| {
         let _ = Command::new("pkexec")
-            .arg("sh")
-            .arg("-c")
-            .arg("systemctl stop zapret 2>/dev/null || rc-service zapret stop 2>/dev/null || sv down zapret 2>/dev/null || service zapret stop 2>/dev/null || dinitctl stop zapret 2>/dev/null || killall -9 nfqws tpws dvtws 2>/dev/null || pkill -9 -x nfqws 2>/dev/null || pkill -9 -x tpws 2>/dev/null || true")
+            .arg(get_zapret_control_path())
+            .arg("stop")
             .output();
         nav_stop_rescan.push(&page_rescan_stop);
     });
@@ -1879,7 +1860,7 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
         let lbl_info = label_test_info_rescan.clone();
         let pid = current_pid_rescan.clone();
         let win = window_clone_rescan.clone();
-        let d_list = domains.clone();
+        let d_vec = domains.clone();
         let nav_mgmt = nav_view_mgmt_rescan.clone();
         let page_mgmt = page_mgmt_rescan.clone();
         let list_mgmt = list_box_mgmt_rescan.clone();
@@ -1901,7 +1882,7 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
             lbl.set_label(&t("Denenen Stratejiler: 0"));
             nav.push(&page);
             let (sender, receiver) = mpsc::channel();
-            let d_vec = d_list.clone();
+            let d_vec = d_vec.clone();
             thread::spawn(move || {
                 run_blockcheck_process(d_vec, repeats, scan_level, sender, cf_thread, Some(PathBuf::from("/opt/zapret")));
             });
@@ -2029,29 +2010,19 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
     let dns_warning_label_clone = dns_warning_label.clone();
     let window_clone = window.clone();
     let nav_view_clone = nav_view.clone();
-    let window_clone_import = window.clone(); 
     let page_check_clone = page_check.clone();
-    let page_test_clone = page_test.clone();
     let status_label_check_clone = status_label_check.clone();
     let conflict_list_label_clone = conflict_list_label.clone();
     let force_continue_button_clone = force_continue_button.clone();
     let spinner_check_clone = spinner_check.clone();
     let nav_view_clone_for_check = nav_view.clone();
     let page2_clone_for_check = page2.clone();
-    let nav_view_clone_for_force = nav_view.clone();
-    let page2_clone_for_force = page2.clone();
-    let nav_view_clone_for_test = nav_view.clone();
-    let label_test_counter_clone = label_test_counter.clone();
-    let label_test_title_clone = label_test_title.clone();
-    let label_test_info_clone = label_test_info.clone();
     let is_installation_complete = Rc::new(Cell::new(false));
     let is_complete_click = is_installation_complete.clone();
     let is_complete_done = is_installation_complete.clone();
     let is_installing = Rc::new(Cell::new(false));
     let is_installing_click = is_installing.clone();
     let is_installing_direct = is_installing.clone();
-    let install_child_pid = Arc::new(Mutex::new(None::<u32>));
-    let install_cancel_flag = Arc::new(AtomicBool::new(false)); 
     let install_child_pid_btn = install_child_pid.clone();
     let install_child_pid_run = install_child_pid.clone();
     let install_cancel_flag_btn = install_cancel_flag.clone();
@@ -2060,8 +2031,14 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
     let nav_view_clone_mgmt = nav_view.clone();
     let page_mgmt_clone = page_mgmt.clone();
     let list_box_mgmt = strategies_list_box.clone();
-    let win_import_status = window.clone();
-    let strategies_list_box_status = strategies_list_box.clone();
+    let window_clone_import = window.clone();
+    let page_test_clone = page_test.clone();
+    let label_test_counter_clone = label_test_counter.clone();
+    let label_test_title_clone = label_test_title.clone();
+    let label_test_info_clone = label_test_info.clone();
+    let nav_view_clone_for_test = nav_view.clone();
+    let nav_view_clone_for_force = nav_view.clone();
+    let page2_clone_for_force = page2.clone();
     
     let win_delete = window.clone();
     let nav_delete = nav_view.clone();
@@ -2074,6 +2051,8 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
     let status_label_clone_delete = status_label.clone();
     let progress_bar_clone_delete = progress_bar.clone();
     let list_box_mgmt_delete = strategies_list_box.clone();
+    let curr_p_del = current_profile_id.clone();
+    let profile_btns_del = profile_btns_rc.clone();
     
     delete_btn.connect_clicked(move |_| {
          let dialog = adw::MessageDialog::builder()
@@ -2096,47 +2075,24 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
         let st_del = status_label_clone_delete.clone();
         let pb_del = progress_bar_clone_delete.clone();
         let list_del = list_box_mgmt_delete.clone();
+        let curr_p_del = curr_p_del.clone();
+        let profile_btns_del = profile_btns_del.clone();
         
         dialog.connect_response(None, move |d, response| {
             if response == "delete" {
                  log_to_file("User initiated Zapret deletion.");
-                 let mut cmd = String::new();
-                 
-                 cmd.push_str("if [ -f /opt/zapret/uninstall_easy.sh ]; then sh /opt/zapret/uninstall_easy.sh 2>/dev/null || true; fi; ");
-                 cmd.push_str("rm -rf /opt/zapret 2>/dev/null || true; ");
-                 
-                 if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
-                      let cfg_path = proj_dirs.config_dir().to_string_lossy();
-                      cmd.push_str(&format!("rm -rf \"{}\" 2>/dev/null || true; ", cfg_path));
-                 }
-                 
-                 cmd.push_str("systemctl stop zapret 2>/dev/null || true; ");
-                 cmd.push_str("systemctl disable zapret 2>/dev/null || true; ");
-                 cmd.push_str("systemctl disable zapret-custom 2>/dev/null || true; ");
-                 cmd.push_str("rm -f /etc/systemd/system/zapret.service /etc/systemd/system/zapret-custom.service /lib/systemd/system/zapret.service 2>/dev/null || true; ");
-                 cmd.push_str("systemctl daemon-reload 2>/dev/null || true; ");
-                 cmd.push_str("rc-service zapret stop 2>/dev/null || true; ");
-                 cmd.push_str("rc-update del zapret default 2>/dev/null || rc-update del zapret 2>/dev/null || true; ");
-                 cmd.push_str("rm -f /etc/init.d/zapret 2>/dev/null || true; ");
-                 cmd.push_str("sv down zapret 2>/dev/null || true; ");
-                 cmd.push_str("rm -rf /var/service/zapret /etc/service/zapret /run/runit/service/zapret 2>/dev/null || true; ");
-                 cmd.push_str("service zapret stop 2>/dev/null || /etc/init.d/zapret stop 2>/dev/null || true; ");
-                 cmd.push_str("if command -v update-rc.d >/dev/null 2>&1; then update-rc.d -f zapret remove 2>/dev/null || true; elif command -v chkconfig >/dev/null 2>&1; then chkconfig --del zapret 2>/dev/null || true; fi; ");
-                 cmd.push_str("rm -f /etc/init.d/zapret /etc/rc.d/zapret 2>/dev/null || true; ");
-                 cmd.push_str("dinitctl stop zapret 2>/dev/null || true; ");
-                 cmd.push_str("dinitctl disable zapret 2>/dev/null || true; ");
-                 cmd.push_str("rm -f /etc/dinit.d/zapret /etc/dinit.d/boot.d/zapret 2>/dev/null || true; ");
-                 cmd.push_str("killall -9 nfqws tpws dvtws 2>/dev/null || pkill -9 -x nfqws 2>/dev/null || pkill -9 -x tpws 2>/dev/null || true; ");
-                 
                  let res = Command::new("pkexec")
-                    .arg("sh")
-                    .arg("-c")
-                    .arg(&cmd)
+                    .arg(get_zapret_control_path())
+                    .arg("uninstall")
                     .output();
                     
                  match res {
                     Ok(_) => {
                         d.close();
+                        if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
+                            let _ = fs::remove_dir_all(proj_dirs.config_dir());
+                        }
+                        reset_profile_ui_to_1(&curr_p_del, &profile_btns_del);
                         is_comp_del.set(false);
                         is_inst_del.set(false);
                         btn_del.set_label(&t("Kuruluma Başla"));
@@ -2183,6 +2139,8 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
     });
 
     let curr_p_import = current_profile_id.clone();
+    let win_import_status = window.clone();
+    let strategies_list_box_status = strategies_list_box.clone();
     import_button_status.connect_clicked(move |_| {
         let file_dialog = gtk::FileDialog::builder()
             .title(&t("Strateji Dosyası Seç"))
@@ -2281,7 +2239,6 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
              }
         });
     });
-    let profile_btns_rc = Rc::new(profile_buttons);
     for id in 1..=10 {
         let btn = &profile_btns_rc[id - 1];
         let curr_p = current_profile_id.clone();
@@ -2362,59 +2319,45 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
         let combined_strategies = selected_strategies.join(" ");
         println!("Applying profile {}: {}", current_id, combined_strategies);
         log_to_file(&format!("Applying profile {} strategies: {}", current_id, combined_strategies));
+        
         let config_path = Path::new("/opt/zapret/config");
-        let content_res = fs::read_to_string(config_path).or_else(|_| {
-             let out = Command::new("pkexec").arg("cat").arg("/opt/zapret/config").output();
-             match out {
-                 Ok(o) if o.status.success() => Ok(String::from_utf8_lossy(&o.stdout).to_string()),
-                 _ => Err(io::Error::new(io::ErrorKind::PermissionDenied, t("Dosya okunamadı"))),
-             }
+        let content_opt = fs::read_to_string(config_path).ok().or_else(|| {
+            let out = Command::new("pkexec")
+                .arg(get_zapret_control_path())
+                .arg("cat-config")
+                .output();
+            match out {
+                Ok(o) if o.status.success() => Some(String::from_utf8_lossy(&o.stdout).to_string()),
+                _ => None,
+            }
         });
-        match content_res {
-            Ok(content) => {
+             
+        match content_opt {
+            Some(content) => {
                 let new_content = update_config_content(&content, &combined_strategies);
                 let domains = load_profile_hostlist(current_id);
                 let mode_filter = if domains.is_empty() { "none" } else { "hostlist" };
                 let new_content = update_config_mode_filter(&new_content, mode_filter);
 
-                let temp_path = "/tmp/zapret_config_new";
-                let temp_hosts = "/tmp/zapret_hosts_user_new.txt";
+                let runtime_dir = get_secure_runtime_dir();
+                let temp_path = runtime_dir.join("zapret_config_new");
+                let temp_hosts = runtime_dir.join("zapret_hosts_new");
 
                 let mut hosts_content = String::new();
                 for d in &domains {
                     hosts_content.push_str(d);
                     hosts_content.push('\n');
                 }
-                let _ = fs::write(temp_hosts, &hosts_content);
+                let _ = fs::write(&temp_hosts, &hosts_content);
+                let _ = fs::write(&temp_path, &new_content);
 
-                if let Err(e) = fs::write(temp_path, &new_content) {
-                     let dialog = adw::MessageDialog::builder()
-                        .transient_for(&win_apply)
-                        .heading(&t("Hata"))
-                        .body(&t("Geçici dosya oluşturulamadı: {}").replace("{}", &e.to_string()))
-                        .build();
-                    dialog.add_response("ok", &t("Tamam"));
-                    dialog.present();
-                    return;
-                }
-                let init = get_init_system();
-                let restart_cmd = if init == "openrc" {
-                    "rc-service zapret restart"
-                } else if init == "runit" {
-                    "sv restart zapret"
-                } else if init == "sysvinit" {
-                    "service zapret restart"
-                } else if init == "dinit" {
-                    "dinitctl restart zapret"
-                } else {
-                    "systemctl restart zapret"
-                };
-                let cmd_script = format!("mv -f {} /opt/zapret/ipset/zapret-hosts-user.txt && mv -f {} /opt/zapret/config && {}", temp_hosts, temp_path, restart_cmd);
                 let res = Command::new("pkexec")
-                    .arg("sh")
-                    .arg("-c")
-                    .arg(cmd_script)
+                    .arg(get_zapret_control_path())
+                    .arg("apply-config")
+                    .arg(&temp_path)
+                    .arg(&temp_hosts)
                     .output();
+                    
                 match res {
                     Ok(output) if output.status.success() => {
                         log_to_file("Config file updated successfully and service restarted.");
@@ -2449,11 +2392,11 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
                     }
                 }
             },
-            Err(e) => {
+            None => {
                  let dialog = adw::MessageDialog::builder()
                     .transient_for(&win_apply)
                     .heading(&t("Okuma Hatası"))
-                    .body(&t("Config dosyası okunamadı: {}").replace("{}", &e.to_string()))
+                    .body(&t("Config dosyası okunamadı veya Zapret kurulu değil."))
                     .build();
                 dialog.add_response("ok", &t("Tamam"));
                 dialog.present();
@@ -2472,14 +2415,13 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
     button.connect_clicked(move |_| {
         if is_installing_click.get() {
             install_cancel_flag_btn.store(true, Ordering::Relaxed);
-            if let Ok(guard) = install_child_pid_btn.lock() {
-                if let Some(pid) = *guard {
-                    let _ = Command::new("kill")
-                        .arg("-9")
-                        .arg(pid.to_string())
-                        .spawn();
-                }
-            }
+            let pid_opt = install_child_pid_btn.lock().ok().and_then(|g| *g);
+            let pid_str = pid_opt.map(|p| p.to_string()).unwrap_or_else(|| "0".to_string());
+            let _ = Command::new("pkexec")
+                .arg(get_zapret_control_path())
+                .arg("kill-pid")
+                .arg(pid_str)
+                .spawn();
             is_installing_click.set(false);
             button_clone.set_label(&t("Kuruluma Başla"));
             button_clone.remove_css_class("destructive-action");
@@ -2660,17 +2602,15 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
     let _test_cancel_flag_run = test_cancel_flag.clone();
     test_cancel_button.connect_clicked(move |_| {
         test_cancel_flag_btn.store(true, Ordering::Relaxed);
-        if let Ok(guard) = current_pid_cancel.lock() {
-            if let Some(pid) = *guard {
-                println!("Canceling process... PID: {}", pid);
-                log_to_file(&format!("Process cancelling... PID: {}", pid));
-                let _ = Command::new("pkexec")
-                    .arg("kill")
-                    .arg("-9")
-                    .arg(pid.to_string())
-                    .spawn();
-            }
-        }
+        let pid_opt = current_pid_cancel.lock().ok().and_then(|g| *g);
+        let pid_str = pid_opt.map(|p| p.to_string()).unwrap_or_else(|| "0".to_string());
+        println!("Canceling process... PID: {}", pid_str);
+        log_to_file(&format!("Process cancelling... PID: {}", pid_str));
+        let _ = Command::new("pkexec")
+            .arg(get_zapret_control_path())
+            .arg("kill-pid")
+            .arg(pid_str)
+            .spawn();
         nav_view_clone_cancel.pop();
     });
     let window_clone_preset = window.clone();
@@ -2684,6 +2624,8 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
     let nav_mgmt_preset = nav_view_clone_mgmt.clone();
     let page_mgmt_preset = page_mgmt_clone.clone();
     let list_mgmt_preset = list_box_mgmt.clone();
+    let curr_p_preset_btn = current_profile_id.clone();
+    let profile_btns_preset_btn = profile_btns_rc.clone();
 
     preset_button.connect_clicked(move |_| {
         let dialog = adw::MessageDialog::builder()
@@ -2708,6 +2650,9 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
         let win_timer = window_clone_preset.clone();
         let win_err = window_clone_preset.clone();
 
+        let curr_p_preset = curr_p_preset_btn.clone();
+        let profile_btns_preset = profile_btns_preset_btn.clone();
+
         dialog.connect_response(None, move |d, response| {
             if response == "confirm" {
                 d.close();
@@ -2731,6 +2676,8 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
                         let list_box_timer = list_box_mgmt_timer.clone();
                         let nav_mgmt_t = nav_mgmt_timer.clone();
                         let page_mgmt_t = page_mgmt_timer.clone();
+                        let curr_p_preset = curr_p_preset.clone();
+                        let profile_btns_preset = profile_btns_preset.clone();
                         glib::timeout_add_local(Duration::from_millis(50), move || {
                             match receiver.try_recv() {
                                 Ok(msg) => {
@@ -2753,7 +2700,8 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
                                             nav_timer.pop();
                                             match result {
                                                 Ok(_) => {
-                                                    let loaded = load_profile_strategies(get_active_profile_id());
+                                                    reset_profile_ui_to_1(&curr_p_preset, &profile_btns_preset);
+                                                    let loaded = load_profile_strategies(1);
                                                     populate_strategies_box(&list_box_timer, &loaded);
                                                     nav_mgmt_t.replace(&[page_mgmt_t.clone()]);
                                                 },
@@ -2804,6 +2752,8 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
     let nav_mgmt_import = nav_view_clone_mgmt.clone();
     let page_mgmt_import = page_mgmt_clone.clone();
     let list_mgmt_import = list_box_mgmt.clone();
+    let curr_p_import_p2 = current_profile_id.clone();
+    let profile_btns_import_p2 = profile_btns_rc.clone();
     import_button.connect_clicked(move |_| {
         let file_dialog = gtk::FileDialog::builder()
             .title(&t("Strateji Dosyası Seç"))
@@ -2828,6 +2778,8 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
         let list_box_mgmt_import_timer = list_mgmt_import.clone();
         let nav_mgmt_import_timer = nav_mgmt_import.clone();
         let page_mgmt_import_timer = page_mgmt_import.clone();
+        let curr_p_import_p2 = curr_p_import_p2.clone();
+        let profile_btns_import_p2 = profile_btns_import_p2.clone();
         file_dialog.open(Some(&window_clone_import), None::<&gtk::gio::Cancellable>, move |result| {
             if let Ok(file) = result {
                 if let Some(path) = file.path() {
@@ -2848,6 +2800,11 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
                             let win_timer = win_for_dialog.clone();
                             let pid_timer = pid.clone();
                             let lbl_timer = lbl.clone();
+                            let list_box_mgmt_import_timer = list_box_mgmt_import_timer.clone();
+                            let nav_mgmt_import_timer = nav_mgmt_import_timer.clone();
+                            let page_mgmt_import_timer = page_mgmt_import_timer.clone();
+                            let curr_p_import_p2 = curr_p_import_p2.clone();
+                            let profile_btns_import_p2 = profile_btns_import_p2.clone();
                             glib::timeout_add_local(Duration::from_millis(50), move || {
                                 match receiver.try_recv() {
                                     Ok(msg) => {
@@ -2870,7 +2827,8 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
                                                 nav_timer.pop();
                                                 match result {
                                                     Ok(_) => {
-                                                        let loaded = load_profile_strategies(get_active_profile_id());
+                                                        reset_profile_ui_to_1(&curr_p_import_p2, &profile_btns_import_p2);
+                                                        let loaded = load_profile_strategies(1);
                                                         populate_strategies_box(&list_box_mgmt_import_timer, &loaded);
                                                         nav_mgmt_import_timer.replace(&[page_mgmt_import_timer.clone()]);
                                                     },
@@ -2910,6 +2868,8 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
     });
     let entries_container_read = entries_container.clone();
     let window_clone_msg = window.clone();
+    let curr_p_finish_btn = current_profile_id.clone();
+    let profile_btns_finish_btn = profile_btns_rc.clone();
     finish_button.connect_clicked(move |_| {
         let mut domains = Vec::new();
         let mut current_child = entries_container_read.first_child();
@@ -2966,6 +2926,8 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
         let nav_mgmt = nav_view_clone_mgmt.clone();
         let page_mgmt = page_mgmt_clone.clone();
         let list_mgmt = list_box_mgmt.clone();
+        let curr_p_finish = curr_p_finish_btn.clone();
+        let profile_btns_finish = profile_btns_finish_btn.clone();
         dialog.connect_response(None, move |d: &adw::MessageDialog, response_id| {
             let (repeats, scan_level) = match response_id {
                 "quick" => (1, "quick".to_string()),
@@ -3000,6 +2962,8 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
             let list_box_mgmt_timer = list_mgmt.clone();
             let nav_mgmt_timer = nav_mgmt.clone();
             let page_mgmt_timer = page_mgmt.clone();
+            let curr_p_finish = curr_p_finish.clone();
+            let profile_btns_finish = profile_btns_finish.clone();
             let mut count = 0;
             glib::timeout_add_local(Duration::from_millis(50), move || {
                 match receiver.try_recv() {
@@ -3081,7 +3045,8 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
                                 }
                                 match result {
                                     Ok(_) => {
-                                        let loaded = load_profile_strategies(get_active_profile_id());
+                                        reset_profile_ui_to_1(&curr_p_finish, &profile_btns_finish);
+                                        let loaded = load_profile_strategies(1);
                                         populate_strategies_box(&list_box_mgmt_timer, &loaded);
                                         delete_local_zapret_folder();
                                         nav_mgmt_timer.replace(&[page_mgmt_timer.clone()]);
@@ -3110,6 +3075,7 @@ systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null ||
     });
     window.present();
 }
+
 fn validate_and_copy_strategies(path: &Path, target_profile_id: usize) -> io::Result<()> {
     let content = fs::read_to_string(path)?;
     let strategies = parse_strategies_from_content(&content);
@@ -3186,9 +3152,8 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
     log_to_file(&format!("Blockcheck started. Level: {}, Repeat: {}, Domains: {}", scan_level, repeats, domains_str));
 
     let _ = Command::new("pkexec")
-        .arg("sh")
-        .arg("-c")
-        .arg("systemctl stop zapret 2>/dev/null || rc-service zapret stop 2>/dev/null || sv down zapret 2>/dev/null || service zapret stop 2>/dev/null || dinitctl stop zapret 2>/dev/null || true")
+        .arg(get_zapret_control_path())
+        .arg("stop")
         .output();
 
     let zapret_dir = custom_zapret_dir.unwrap_or_else(|| get_zapret_path());
@@ -3200,20 +3165,15 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
         return;
     }
     let zapret_base_str = zapret_dir.to_string_lossy().to_string();
-    println!("Executing blockcheck: pkexec env ... {:?}", blockcheck_script);
-    log_to_file(&format!("Executing blockcheck: pkexec env ... {:?}", blockcheck_script));
+    println!("Executing blockcheck via zapret-control.sh");
+    log_to_file("Executing blockcheck via zapret-control.sh");
     let mut child = match Command::new("pkexec")
-        .arg("env")
-        .arg("BATCH=1")
-        .arg(format!("REPEATS={}", repeats))
-        .arg(format!("SCANLEVEL={}", scan_level))
-        .arg("SKIP_TPWS=1")
-        .arg("ENABLE_HTTP=1")
-        .arg("ENABLE_HTTPS_TLS12=1")
-        .arg("ENABLE_HTTPS_TLS13=1")
-        .arg(format!("ZAPRET_BASE={}", zapret_base_str))
-        .arg(format!("DOMAINS={}", domains_str))
-        .arg(blockcheck_script)
+        .arg(get_zapret_control_path())
+        .arg("blockcheck")
+        .arg(repeats.to_string())
+        .arg(scan_level)
+        .arg(&zapret_base_str)
+        .args(&domains)
         .stdout(Stdio::piped()) 
         .spawn() {
             Ok(c) => c,
@@ -3230,6 +3190,11 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
             if cancel_flag.load(Ordering::Relaxed) {
                 println!("Thread: Cancel flag detected, stopping process.");
                 log_to_file("Thread: Cancel flag detected, stopping process.");
+                let _ = Command::new("pkexec")
+                    .arg(get_zapret_control_path())
+                    .arg("kill-pid")
+                    .arg(child.id().to_string())
+                    .output();
                 let _ = child.kill();
                 let _ = child.wait(); 
                 return; 
@@ -3318,67 +3283,18 @@ fn run_easy_install_script(sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<Atomi
         return;
     }
     let inputs = "Y\nY\nN\n1\nN\nN\nY\nN\n\n\n";
-    let input_path = Path::new("/tmp/zapret_install_inputs.txt");
-    if let Err(e) = fs::write(input_path, inputs) {
+    let input_path = get_secure_runtime_dir().join("zapret_install_inputs.txt");
+    if let Err(e) = fs::write(&input_path, inputs) {
          let _ = sender.send(TestMsg::InstallFinished(Err(e)));
          return;
     }
     let zapret_base_str = zapret_dir.to_string_lossy().to_string();
-    let wrapper_content = format!(
-        "#!/bin/sh\nexport ZAPRET_BASE=\"{}\"\n\"{}\" < \"{}\"\n", 
-        zapret_base_str, 
-        install_script.to_string_lossy(), 
-        input_path.to_string_lossy()
-    );
-    let wrapper_path = Path::new("/tmp/zapret_wrapper_run.sh");
-    if let Err(e) = fs::write(wrapper_path, wrapper_content) {
-        let _ = sender.send(TestMsg::InstallFinished(Err(e)));
-        return;
-    }
-    let _ = Command::new("chmod").arg("+x").arg(wrapper_path).output();
-    let init_system = get_init_system();
-    let mut post_install_cmds = String::from("sed -i 's/^NFQWS_ENABLE=.*/NFQWS_ENABLE=1/' /opt/zapret/config\n");
-    if init_system == "runit" {
-        post_install_cmds.push_str("if [ -d \"/opt/zapret/init.d/runit/zapret\" ]; then\n");
-        post_install_cmds.push_str("  mkdir -p /etc/sv/zapret\n");
-        post_install_cmds.push_str("  cp -rf /opt/zapret/init.d/runit/zapret/* /etc/sv/zapret/\n");
-        post_install_cmds.push_str("  chmod +x /etc/sv/zapret/run\n");
-        post_install_cmds.push_str("  ln -sf /etc/sv/zapret /var/service/zapret\n");
-        post_install_cmds.push_str("  sv up zapret || true\n");
-        post_install_cmds.push_str("fi\n");
-    } else if init_system == "sysvinit" {
-        post_install_cmds.push_str("if [ -f \"/opt/zapret/init.d/sysv/zapret\" ]; then\n");
-        post_install_cmds.push_str("  cp -f /opt/zapret/init.d/sysv/zapret /etc/init.d/\n");
-        post_install_cmds.push_str("  chmod +x /etc/init.d/zapret\n");
-        post_install_cmds.push_str("  if command -v update-rc.d >/dev/null 2>&1; then\n");
-        post_install_cmds.push_str("    update-rc.d zapret defaults || true\n");
-        post_install_cmds.push_str("  elif command -v chkconfig >/dev/null 2>&1; then\n");
-        post_install_cmds.push_str("    chkconfig --add zapret || true\n");
-        post_install_cmds.push_str("  fi\n");
-        post_install_cmds.push_str("  service zapret start || true\n");
-        post_install_cmds.push_str("fi\n");
-    } else if init_system == "dinit" {
-        post_install_cmds.push_str("if [ -f \"/opt/zapret/init.d/dinit/zapret\" ]; then\n");
-        post_install_cmds.push_str("  mkdir -p /etc/dinit.d\n");
-        post_install_cmds.push_str("  cp -f /opt/zapret/init.d/dinit/zapret /etc/dinit.d/\n");
-        post_install_cmds.push_str("  dinitctl enable zapret || true\n");
-        post_install_cmds.push_str("  dinitctl start zapret || true\n");
-        post_install_cmds.push_str("fi\n");
-    }
-    post_install_cmds.push_str(get_polkit_setup_script());
-    let wrapper_content_fixed = format!(
-        "#!/bin/sh\nexport ZAPRET_BASE=\"{}\"\n\"{}\" < \"{}\"\nexit_code=$?\nif [ $exit_code -eq 0 ]; then\n{}\nfi\nexit $exit_code\n", 
-        zapret_base_str, 
-        install_script.to_string_lossy(), 
-        input_path.to_string_lossy(),
-        post_install_cmds
-    );
-    if let Err(e) = fs::write(wrapper_path, wrapper_content_fixed) {
-        let _ = sender.send(TestMsg::InstallFinished(Err(e)));
-        return;
-    }
+    let input_str = input_path.to_string_lossy().to_string();
     let mut child = match Command::new("pkexec")
-        .arg(wrapper_path)
+        .arg(get_zapret_control_path())
+        .arg("easy-install")
+        .arg(&zapret_base_str)
+        .arg(&input_str)
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit()) 
         .spawn() {
@@ -3426,14 +3342,17 @@ const DEFAULT_PRESET_STRATEGIES: &[&str] = &[
 ];
 
 fn apply_preset_strategies_to_profile(profile_id: usize) -> io::Result<()> {
-    let preset_vec: Vec<String> = DEFAULT_PRESET_STRATEGIES.iter().map(|s| s.to_string()).collect();
-    save_strategies_to_profile(profile_id, &preset_vec)
+    let preset_vec: Vec<ProfileStrategy> = DEFAULT_PRESET_STRATEGIES.iter().map(|s| ProfileStrategy {
+        strategy: s.to_string(),
+        active: true,
+    }).collect();
+    save_profile_strategies(profile_id, &preset_vec)
 }
 
 fn save_strategies_to_profile(profile_id: usize, strategies: &[String]) -> io::Result<()> {
     let profile_strats: Vec<ProfileStrategy> = strategies.iter().map(|s| ProfileStrategy {
         strategy: s.clone(),
-        active: true,
+        active: false,
     }).collect();
     save_profile_strategies(profile_id, &profile_strats)
 }
@@ -3572,7 +3491,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
 
         if overwrite && zapret_full_path.exists() {
             root_commands.push_str("echo \"STATUS:CLEANING\"\n");
-            root_commands.push_str(&format!("rm -rf \"{}\"\n", zapret_path_str));
+            root_commands.push_str(&format!("rm -rf '{}'\n", zapret_path_str.replace('\'', "'\\''")));
         }
         if cancel_flag_thread.load(Ordering::Relaxed) { return; }
         let binary_deps = vec!["git", "curl", "ipset", "iptables", "make", "gcc", "dig", "dnscrypt-proxy"];
@@ -3681,15 +3600,20 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
         if cancel_flag_thread.load(Ordering::Relaxed) { return; }
         {
             let _ = sender.send(AppMsg::Status(t("Yetki onayı bekleniyor...")));
-            let script_path = "/tmp/zapret_installer_job.sh";
-            if let Ok(mut file) = fs::File::create(script_path) {
+            let script_path = get_secure_runtime_dir().join("zapret_installer_job.sh");
+            if let Ok(mut file) = fs::File::create(&script_path) {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = file.set_permissions(fs::Permissions::from_mode(0o700));
+                }
                 let _ = file.write_all(root_commands.as_bytes());
             }
             println!("--- Installer Script Content ---\n{}\n--------------------------------", root_commands);
             log_to_file(&format!("--- Installer Script Content ---\n{}\n--------------------------------", root_commands));
             let mut child = Command::new("pkexec")
                 .arg("/bin/sh")
-                .arg(script_path)
+                .arg(&script_path)
                 .stdout(Stdio::piped())
                 .spawn()
                 .expect("pkexec başlatılamadı");
@@ -3884,106 +3808,196 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
     });
 }
 fn ensure_polkit_rules_installed() {
-    let rule_file = Path::new("/etc/polkit-1/rules.d/90-zapret-gtk.rules");
-    let pkla_file = Path::new("/etc/polkit-1/localauthority/50-local.d/90-zapret-gtk.pkla");
-    let mut needs_install = !rule_file.exists() && !pkla_file.exists();
-    if rule_file.exists() {
-        if let Ok(content) = fs::read_to_string(rule_file) {
-            if !content.contains("env") {
-                needs_install = true;
-            }
-        }
-    }
-    if !needs_install {
+    let control_file = Path::new("/usr/bin/zapret-control");
+    let control_content = fs::read_to_string(control_file).unwrap_or_default();
+    if control_file.exists() && control_content.contains("# VERSION: 2") && control_content.contains("pkill -9 -P") {
         return;
     }
-    log_to_file("Polkit rules not found or outdated. Installing one-time authorization rule on startup...");
+    if !Path::new("/opt/zapret").exists() {
+        return;
+    }
+    log_to_file("Polkit rules not found or outdated. Installing restricted authorization rule on startup...");
     let script = get_polkit_setup_script();
-    let temp_script = "/tmp/zapret_polkit_init.sh";
-    if let Ok(mut f) = fs::File::create(temp_script) {
-        let _ = f.write_all(format!("#!/bin/sh\nset -e\n{}\nrm -f \"{}\"\n", script, temp_script).as_bytes());
-        let _ = Command::new("chmod").arg("+x").arg(temp_script).output();
+    let temp_script = get_secure_runtime_dir().join("zapret_polkit_init.sh");
+    if let Ok(mut f) = fs::File::create(&temp_script) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = f.set_permissions(fs::Permissions::from_mode(0o700));
+        }
+        let _ = f.write_all(format!("#!/bin/sh\nset -e\n{}\nrm -f \"{}\"\n", script, temp_script.display()).as_bytes());
+        let _ = Command::new("chmod").arg("+x").arg(&temp_script).output();
         let _ = Command::new("pkexec")
             .arg("/bin/sh")
-            .arg(temp_script)
+            .arg(&temp_script)
             .output();
     }
 }
 
 fn get_polkit_setup_script() -> &'static str {
-    r#"mkdir -p /etc/polkit-1/rules.d 2>/dev/null || true
-cat << 'EOF' > /etc/polkit-1/rules.d/90-zapret-gtk.rules
-/* Zapret-GTK Polkit Rule */
+    r#"mkdir -p /opt/zapret /etc/polkit-1/rules.d /usr/bin 2>/dev/null || true
+cat << 'EOF' > /usr/bin/zapret-control
+#!/bin/sh
+# VERSION: 2
+set -e
+
+restart_service() {
+    systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null || sv restart zapret 2>/dev/null || service zapret restart 2>/dev/null || dinitctl restart zapret 2>/dev/null || true
+}
+
+stop_service() {
+    systemctl stop zapret 2>/dev/null || rc-service zapret stop 2>/dev/null || sv down zapret 2>/dev/null || service zapret stop 2>/dev/null || dinitctl stop zapret 2>/dev/null || killall -9 nfqws tpws dvtws 2>/dev/null || pkill -9 -x nfqws 2>/dev/null || pkill -9 -x tpws 2>/dev/null || true
+}
+
+start_service() {
+    systemctl start zapret 2>/dev/null || rc-service zapret start 2>/dev/null || sv up zapret 2>/dev/null || service zapret start 2>/dev/null || dinitctl start zapret 2>/dev/null || true
+}
+
+case "$1" in
+    start)
+        start_service
+        ;;
+    stop)
+        stop_service
+        ;;
+    restart)
+        restart_service
+        ;;
+    cat-config)
+        if [ -f /opt/zapret/config ]; then
+            cat /opt/zapret/config
+        fi
+        ;;
+    apply-config)
+        temp_cfg="$2"
+        temp_hosts="$3"
+        if [ -n "$temp_cfg" ] && [ -f "$temp_cfg" ]; then
+            mkdir -p /opt/zapret
+            mv -f "$temp_cfg" /opt/zapret/config
+            chmod 644 /opt/zapret/config
+        fi
+        if [ -n "$temp_hosts" ] && [ -f "$temp_hosts" ]; then
+            mkdir -p /opt/zapret/ipset
+            mv -f "$temp_hosts" /opt/zapret/ipset/zapret-hosts-user.txt
+            chmod 644 /opt/zapret/ipset/zapret-hosts-user.txt
+        fi
+        restart_service
+        ;;
+    update)
+        cd /opt/zapret
+        git config --global --add safe.directory /opt/zapret || true
+        git fetch origin
+        git reset --hard origin/master || git pull origin master
+        make -B
+        if [ -f /opt/zapret/install_bin.sh ]; then
+            sh /opt/zapret/install_bin.sh || true
+        fi
+        restart_service
+        ;;
+    uninstall)
+        stop_service
+        systemctl disable zapret 2>/dev/null || true
+        systemctl disable zapret-list-update.timer 2>/dev/null || true
+        rc-update del zapret default 2>/dev/null || true
+        rm -rf /etc/runit/runsvdir/default/zapret /var/service/zapret /etc/service/zapret /run/runit/service/zapret 2>/dev/null || true
+        if command -v update-rc.d >/dev/null 2>&1; then update-rc.d -f zapret remove 2>/dev/null || true; elif command -v chkconfig >/dev/null 2>&1; then chkconfig --del zapret 2>/dev/null || true; fi
+        dinitctl disable zapret 2>/dev/null || true
+        rm -f /etc/systemd/system/zapret* /usr/lib/systemd/system/zapret* 2>/dev/null || true
+        rm -f /etc/init.d/zapret /etc/rc.d/zapret /etc/dinit.d/zapret /etc/dinit.d/boot.d/zapret /etc/sv/zapret 2>/dev/null || true
+        systemctl daemon-reload 2>/dev/null || true
+        rm -rf /opt/zapret 2>/dev/null || true
+        rm -f /etc/polkit-1/rules.d/90-zapret-gtk.rules /etc/polkit-1/localauthority/50-local.d/90-zapret-gtk.pkla 2>/dev/null || true
+        rm -f /usr/bin/zapret-control /opt/zapret/zapret-control.sh 2>/dev/null || true
+        exit 0
+        ;;
+    blockcheck)
+        shift
+        repeats="$1"
+        scan_level="$2"
+        zapret_dir="$3"
+        shift 3
+        domains="$*"
+        if [ -n "$zapret_dir" ] && [ -f "$zapret_dir/blockcheck.sh" ]; then
+            BATCH=1 REPEATS="$repeats" SCANLEVEL="$scan_level" SKIP_TPWS=1 ENABLE_HTTP=1 ENABLE_HTTPS_TLS12=1 ENABLE_HTTPS_TLS13=1 ZAPRET_BASE="$zapret_dir" DOMAINS="$domains" "$zapret_dir/blockcheck.sh"
+        fi
+        ;;
+    easy-install)
+        shift
+        zapret_dir="$1"
+        input_file="$2"
+        if [ -n "$zapret_dir" ] && [ -f "$zapret_dir/install_easy.sh" ] && [ -f "$input_file" ]; then
+            export ZAPRET_BASE="$zapret_dir"
+            "$zapret_dir/install_easy.sh" < "$input_file"
+            sed -i 's/^NFQWS_ENABLE=.*/NFQWS_ENABLE=1/' /opt/zapret/config 2>/dev/null || true
+            cp -f /usr/bin/zapret-control /opt/zapret/zapret-control.sh 2>/dev/null || true
+            chmod 755 /opt/zapret/zapret-control.sh 2>/dev/null || true
+            restart_service
+        fi
+        ;;
+    kill-pid)
+        target_pid="$2"
+        if [ -n "$target_pid" ] && echo "$target_pid" | grep -Eq '^[0-9]+$' && [ "$target_pid" -gt 0 ]; then
+            for cpid in $(pgrep -P "$target_pid" 2>/dev/null); do
+                pkill -9 -P "$cpid" 2>/dev/null || true
+                kill -9 "$cpid" 2>/dev/null || true
+            done
+            pkill -9 -P "$target_pid" 2>/dev/null || true
+            kill -9 "$target_pid" 2>/dev/null || true
+        fi
+        pkill -9 -f "blockcheck.sh" 2>/dev/null || true
+        pkill -9 -f "install_easy.sh" 2>/dev/null || true
+        pkill -9 -x nfqws 2>/dev/null || true
+        pkill -9 -x tpws 2>/dev/null || true
+        pkill -9 -x dvtws 2>/dev/null || true
+        pkill -9 -x mdig 2>/dev/null || true
+        pkill -9 -x ip2net 2>/dev/null || true
+        pkill -9 -x curl 2>/dev/null || true
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|cat-config|apply-config <cfg> [hosts]|update|uninstall|blockcheck|easy-install|kill-pid}"
+        exit 1
+        ;;
+esac
+EOF
+chmod 755 /usr/bin/zapret-control 2>/dev/null || true
+cp -f /usr/bin/zapret-control /opt/zapret/zapret-control.sh 2>/dev/null || true
+chmod 755 /opt/zapret/zapret-control.sh 2>/dev/null || true
+
+CURRENT_USER=""
+if [ -n "$PKEXEC_UID" ]; then
+    CURRENT_USER=$(getent passwd "$PKEXEC_UID" | cut -d: -f1)
+fi
+if [ -z "$CURRENT_USER" ]; then
+    CURRENT_USER=$(logname 2>/dev/null || whoami 2>/dev/null || true)
+fi
+
+cat << EOF > /etc/polkit-1/rules.d/90-zapret-gtk.rules
+/* Zapret-GTK Restricted Polkit Rule */
 polkit.addRule(function(action, subject) {
     if (action.id == "org.freedesktop.policykit.exec") {
         var prog = action.lookup("program");
         if (prog && (
-            prog.indexOf("/opt/zapret") === 0 ||
-            prog.indexOf("/tmp/zapret") === 0 ||
-            prog.indexOf("zapret") !== -1 ||
-            prog == "/bin/sh" ||
-            prog == "/usr/bin/sh" ||
-            prog == "/bin/bash" ||
-            prog == "/usr/bin/bash" ||
-            prog == "/bin/env" ||
-            prog == "/usr/bin/env" ||
-            prog == "/usr/bin/systemctl" ||
-            prog == "/bin/systemctl" ||
-            prog == "/usr/bin/rc-service" ||
-            prog == "/sbin/rc-service" ||
-            prog == "/usr/sbin/rc-service" ||
-            prog == "/usr/bin/sv" ||
-            prog == "/bin/sv" ||
-            prog == "/sbin/sv" ||
-            prog == "/usr/sbin/sv" ||
-            prog == "/usr/bin/service" ||
-            prog == "/sbin/service" ||
-            prog == "/usr/sbin/service" ||
-            prog == "/usr/bin/dinitctl" ||
-            prog == "/sbin/dinitctl" ||
-            prog == "/usr/sbin/dinitctl" ||
-            prog == "/bin/kill" ||
-            prog == "/usr/bin/kill" ||
-            prog == "/bin/cat" ||
-            prog == "/usr/bin/cat" ||
-            prog == "/bin/rm" ||
-            prog == "/usr/bin/rm" ||
-            prog == "/bin/chmod" ||
-            prog == "/usr/bin/chmod" ||
-            prog == "/bin/chown" ||
-            prog == "/usr/bin/chown" ||
-            prog == "/bin/mv" ||
-            prog == "/usr/bin/mv" ||
-            prog == "/bin/cp" ||
-            prog == "/usr/bin/cp" ||
-            prog == "/bin/mkdir" ||
-            prog == "/usr/bin/mkdir"
-        )) {
+            prog == "/usr/bin/zapret-control" ||
+            prog == "/opt/zapret/zapret-control.sh" ||
+            prog == "/opt/zapret/install_easy.sh" ||
+            prog == "/opt/zapret/blockcheck.sh"
+        ) && (subject.user == "$CURRENT_USER" || subject.isInGroup("wheel") || subject.isInGroup("sudo"))) {
             return polkit.Result.YES;
         }
     }
 });
 EOF
 chmod 644 /etc/polkit-1/rules.d/90-zapret-gtk.rules 2>/dev/null || true
-if [ -d "/etc/polkit-1/localauthority/50-local.d" ]; then
-cat << 'EOF' > /etc/polkit-1/localauthority/50-local.d/90-zapret-gtk.pkla
-[Zapret GTK Permissions]
-Identity=unix-user:*
-Action=org.freedesktop.policykit.exec
-ResultAny=yes
-ResultInactive=yes
-ResultActive=yes
-EOF
-fi
+rm -f /etc/polkit-1/localauthority/50-local.d/90-zapret-gtk.pkla 2>/dev/null || true
 if [ -n "$PKEXEC_UID" ]; then
     U_HOME=$(getent passwd "$PKEXEC_UID" | cut -d: -f6)
     U_NAME=$(getent passwd "$PKEXEC_UID" | cut -d: -f1)
     if [ -n "$U_HOME" ] && [ -d "$U_HOME/.config/zapret-gtk" ]; then
         chown -R "$U_NAME:$U_NAME" "$U_HOME/.config/zapret-gtk" 2>/dev/null || true
-        chmod -R 777 "$U_HOME/.config/zapret-gtk" 2>/dev/null || true
+        chmod 700 "$U_HOME/.config/zapret-gtk" 2>/dev/null || true
+        chmod 600 "$U_HOME/.config/zapret-gtk"/* 2>/dev/null || true
     fi
 fi
-chmod -R 777 /home/*/.config/zapret-gtk 2>/dev/null || true
 "#
 }
 

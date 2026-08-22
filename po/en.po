@@ -485,3 +485,9 @@ msgstr "Preset strategies saved to the selected profile."
 
 msgid "Yeni stratejiler bulundu ve seçili profile kaydedildi. Listeden kullanmak istediğiniz stratejileri seçip 'Uygula' butonuna basarak aktif edebilirsiniz."
 msgstr "New strategies found and saved to the selected profile. Select the strategies you want to use from the list and click 'Apply' to activate."
+
+msgid "Durdu"
+msgstr "Stopped"
+
+msgid "Config dosyası okunamadı veya Zapret kurulu değil."
+msgstr "Configuration file could not be read or Zapret is not installed."

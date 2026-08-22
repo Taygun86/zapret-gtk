@@ -478,3 +478,9 @@ msgstr "Готовые стратегии сохранены в выбранны
 
 msgid "Yeni stratejiler bulundu ve seçili profile kaydedildi. Listeden kullanmak istediğiniz stratejileri seçip 'Uygula' butonuna basarak aktif edebilirsiniz."
 msgstr "Новые стратегии найдены и сохранены в выбранный профиль. Выберите нужные стратегии из списка и нажмите «Применить» для активации."
+
+msgid "Durdu"
+msgstr "Остановлено"
+
+msgid "Config dosyası okunamadı veya Zapret kurulu değil."
+msgstr "Не удалось прочитать файл конфигурации или Zapret не установлен."
