@@ -469,3 +469,12 @@ msgstr "В системе обнаружена ранее установленн
 
 
 
+
+msgid "Arama hatası: {}"
+msgstr "Ошибка поиска: {}"
+
+msgid "Hazır stratejiler seçili profile kaydedildi."
+msgstr "Готовые стратегии сохранены в выбранный профиль."
+
+msgid "Yeni stratejiler bulundu ve seçili profile kaydedildi. Listeden kullanmak istediğiniz stratejileri seçip 'Uygula' butonuna basarak aktif edebilirsiniz."
+msgstr "Новые стратегии найдены и сохранены в выбранный профиль. Выберите нужные стратегии из списка и нажмите «Применить» для активации."

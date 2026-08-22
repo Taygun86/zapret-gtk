@@ -476,3 +476,12 @@ msgstr "An existing Zapret installation was detected on the system. If you proce
 
 
 
+
+msgid "Arama hatası: {}"
+msgstr "Search error: {}"
+
+msgid "Hazır stratejiler seçili profile kaydedildi."
+msgstr "Preset strategies saved to the selected profile."
+
+msgid "Yeni stratejiler bulundu ve seçili profile kaydedildi. Listeden kullanmak istediğiniz stratejileri seçip 'Uygula' butonuna basarak aktif edebilirsiniz."
+msgstr "New strategies found and saved to the selected profile. Select the strategies you want to use from the list and click 'Apply' to activate."
