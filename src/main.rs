@@ -519,7 +519,7 @@ enum TestMsg {
 fn main() {
     rotate_logs();
     init_i18n();
-    log_to_file("Application started (v0.5.1)");
+    log_to_file("Application started (v0.5.2)");
     ensure_polkit_rules_installed();
     let app = Application::builder()
         .application_id("com.ornek.zapret-gtk")
@@ -528,17 +528,17 @@ fn main() {
     app.run();
 }
 fn get_zapret_path() -> PathBuf {
-    env::current_dir()
-        .unwrap_or_else(|_| Path::new(".").to_path_buf())
-        .join("zapret")
+    PathBuf::from("/opt/zapret")
 }
 fn delete_local_zapret_folder() {
     thread::spawn(move || {
-        let local_zapret = get_zapret_path();
-        if local_zapret.exists() {
-            println!("Deleting local zapret folder: {:?}", local_zapret);
-            log_to_file(&format!("Deleting local zapret folder: {:?}", local_zapret));
-            let _ = fs::remove_dir_all(&local_zapret);
+        if let Ok(curr) = env::current_dir() {
+            let local_zapret = curr.join("zapret");
+            if local_zapret.exists() {
+                println!("Deleting local zapret folder: {:?}", local_zapret);
+                log_to_file(&format!("Deleting local zapret folder: {:?}", local_zapret));
+                let _ = fs::remove_dir_all(&local_zapret);
+            }
         }
     });
 }
@@ -1709,11 +1709,17 @@ fn build_ui(app: &Application) {
     let add_btn_hl_click = add_button_hostlist.clone();
     let curr_p_for_hl_btn = current_profile_id.clone();
     let page_hl_clone_tag = page_hostlist.clone();
+    let save_hl_btn_tag = save_hostlist_btn.clone();
     hostlist_btn.connect_clicked(move |_| {
         let act_id = curr_p_for_hl_btn.get();
         let domains = load_profile_hostlist(act_id);
         populate_hostlist_entries(&entries_container_hl_click, &add_btn_hl_click, &domains);
         page_hl_clone_tag.set_title(&format!("{} ({} {})", t("Hostlist"), t("Profil"), act_id));
+        if act_id == get_active_profile_id() {
+            save_hl_btn_tag.set_label(&t("Kaydet ve Uygula"));
+        } else {
+            save_hl_btn_tag.set_label(&t("Kaydet"));
+        }
         nav_hostlist_click.push(&page_hostlist_click);
     });
 
@@ -1722,6 +1728,7 @@ fn build_ui(app: &Application) {
     let win_save_hl = window.clone();
     save_hostlist_btn.connect_clicked(move |_| {
         let act_id = curr_p_for_save_hl.get();
+        let is_active = act_id == get_active_profile_id();
         let mut domains = Vec::new();
         let mut current_child = entries_container_save_hl.first_child();
         while let Some(child) = current_child {
@@ -1755,15 +1762,24 @@ fn build_ui(app: &Application) {
             return;
         }
 
-        let _ = apply_profile_hostlist_to_zapret(act_id);
-
-        let success_dlg = adw::MessageDialog::builder()
-            .transient_for(&win_save_hl)
-            .heading(&t("Başarılı"))
-            .body(&t("Profil {} hostlist kaydedildi ve uygulandı.").replace("{}", &act_id.to_string()))
-            .build();
-        success_dlg.add_response("ok", &t("Tamam"));
-        success_dlg.present();
+        if is_active {
+            let _ = apply_profile_hostlist_to_zapret(act_id);
+            let success_dlg = adw::MessageDialog::builder()
+                .transient_for(&win_save_hl)
+                .heading(&t("Başarılı"))
+                .body(&t("Profil {} hostlist kaydedildi ve uygulandı.").replace("{}", &act_id.to_string()))
+                .build();
+            success_dlg.add_response("ok", &t("Tamam"));
+            success_dlg.present();
+        } else {
+            let success_dlg = adw::MessageDialog::builder()
+                .transient_for(&win_save_hl)
+                .heading(&t("Başarılı"))
+                .body(&t("Profil {} hostlist kaydedildi.").replace("{}", &act_id.to_string()))
+                .build();
+            success_dlg.add_response("ok", &t("Tamam"));
+            success_dlg.present();
+        }
     });
 
     let check_flow_click = run_rescan_vpn_check.clone();
@@ -1884,7 +1900,7 @@ fn build_ui(app: &Application) {
             let (sender, receiver) = mpsc::channel();
             let d_vec = d_vec.clone();
             thread::spawn(move || {
-                run_blockcheck_process(d_vec, repeats, scan_level, sender, cf_thread, Some(PathBuf::from("/opt/zapret")));
+                run_blockcheck_process(d_vec, repeats, scan_level, sender, cf_thread);
             });
             let pid_timer = pid.clone();
             let nav_timer = nav.clone();
@@ -1994,7 +2010,7 @@ fn build_ui(app: &Application) {
             .transient_for(&win_about)
             .modal(true)
             .program_name("Zapret GTK")
-            .version("0.5.1")
+            .version("0.5.2")
             .logo(&texture)
             .comments(&t("Zapret için modern GTK4 arayüzü."))
             .website("https://github.com/Taygun86/zapret-gtk")
@@ -2951,7 +2967,7 @@ fn build_ui(app: &Application) {
             let sender_blockcheck = sender.clone();
             let sender_install = sender.clone();
             thread::spawn(move || {
-                run_blockcheck_process(d_vec, repeats, scan_level, sender_blockcheck, cf_thread, None);
+                run_blockcheck_process(d_vec, repeats, scan_level, sender_blockcheck, cf_thread);
             });
             let pid_timer = pid.clone();
             let nav_timer = nav.clone();
@@ -3147,7 +3163,7 @@ fn update_config_content(content: &str, new_opt: &str) -> String {
     }
     format!("{}\nNFQWS_OPT=\"{}\"\n", content, formatted_opt)
 }
-fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: String, sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<AtomicBool>, custom_zapret_dir: Option<PathBuf>) {
+fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: String, sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<AtomicBool>) {
     let domains_str = domains.join(" ");
     log_to_file(&format!("Blockcheck started. Level: {}, Repeat: {}, Domains: {}", scan_level, repeats, domains_str));
 
@@ -3156,15 +3172,13 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
         .arg("stop")
         .output();
 
-    let zapret_dir = custom_zapret_dir.unwrap_or_else(|| get_zapret_path());
-    let blockcheck_script = zapret_dir.join("blockcheck.sh");
+    let blockcheck_script = Path::new("/opt/zapret/blockcheck.sh");
     if !blockcheck_script.exists() {
-        let err_msg = t("blockcheck.sh bulunamadı: {}").replace("{}", &blockcheck_script.display().to_string());
+        let err_msg = t("blockcheck.sh bulunamadı: {}").replace("{}", "/opt/zapret/blockcheck.sh");
         log_to_file(&format!("Error: {}", err_msg));
         let _ = sender.send(TestMsg::Finished(Err(io::Error::new(io::ErrorKind::NotFound, err_msg))));
         return;
     }
-    let zapret_base_str = zapret_dir.to_string_lossy().to_string();
     println!("Executing blockcheck via zapret-control.sh");
     log_to_file("Executing blockcheck via zapret-control.sh");
     let mut child = match Command::new("pkexec")
@@ -3172,7 +3186,6 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
         .arg("blockcheck")
         .arg(repeats.to_string())
         .arg(scan_level)
-        .arg(&zapret_base_str)
         .args(&domains)
         .stdout(Stdio::piped()) 
         .spawn() {
@@ -3247,8 +3260,7 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
                 }
                 if let Some(idx) = trimmed.find("nfqws ") {
                     if !trimmed.contains("checking") && !trimmed.contains(">>") && !trimmed.contains("not working") {
-                        let mut strategy = trimmed[idx + 6..].trim().to_string();
-                        strategy = strategy.replace(&zapret_base_str, "/opt/zapret");
+                        let strategy = trimmed[idx + 6..].trim().to_string();
                         strategies.push(strategy);
                     }
                 }
@@ -3259,8 +3271,7 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
                 let trimmed = line.trim();
                  if let Some(idx) = trimmed.find("nfqws ") {
                      if !trimmed.contains("checking") && !trimmed.contains(">>") && !trimmed.contains("not working") {
-                        let mut strategy = trimmed[idx + 6..].trim().to_string();
-                        strategy = strategy.replace(&zapret_base_str, "/opt/zapret");
+                        let strategy = trimmed[idx + 6..].trim().to_string();
                         if !strategies.contains(&strategy) {
                             strategies.push(strategy);
                         }
@@ -3276,8 +3287,7 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
     }
 }
 fn run_easy_install_script(sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<AtomicBool>) {
-    let zapret_dir = get_zapret_path();
-    let install_script = zapret_dir.join("install_easy.sh");
+    let install_script = Path::new("/opt/zapret/install_easy.sh");
     if !install_script.exists() {
         let _ = sender.send(TestMsg::InstallFinished(Err(io::Error::new(io::ErrorKind::NotFound, t("install_easy.sh bulunamadı")))));
         return;
@@ -3288,12 +3298,10 @@ fn run_easy_install_script(sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<Atomi
          let _ = sender.send(TestMsg::InstallFinished(Err(e)));
          return;
     }
-    let zapret_base_str = zapret_dir.to_string_lossy().to_string();
     let input_str = input_path.to_string_lossy().to_string();
     let mut child = match Command::new("pkexec")
         .arg(get_zapret_control_path())
         .arg("easy-install")
-        .arg(&zapret_base_str)
         .arg(&input_str)
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit()) 
@@ -3468,8 +3476,6 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
         let _ = sender.send(AppMsg::Status("Sistem kontrol ediliyor...".to_string()));
         let mut root_commands = String::from("#!/bin/sh\nset -e\nexec 2>&1\nexec < /dev/null\n");
         let distro_id = get_distro_id();
-        let zapret_full_path = get_zapret_path();
-        let zapret_path_str = zapret_full_path.to_string_lossy().to_string();
         if cancel_flag_thread.load(Ordering::Relaxed) { return; }
         root_commands.push_str("systemctl stop zapret 2>/dev/null || true\n");
         root_commands.push_str("systemctl disable zapret 2>/dev/null || true\n");
@@ -3482,16 +3488,11 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
         root_commands.push_str("sv down zapret 2>/dev/null || true\n");
         root_commands.push_str("rm -rf /var/service/zapret /etc/service/zapret /run/runit/service/zapret 2>/dev/null || true\n");
         root_commands.push_str("service zapret stop 2>/dev/null || /etc/init.d/zapret stop 2>/dev/null || true\n");
-        root_commands.push_str("if command -v update-rc.d >/dev/null 2>&1; then update-rc.d -f zapret remove 2>/dev/null || true; elif command -v chkconfig >/dev/null 2>&1; then chkconfig --del zapret 2>/dev/null || true; fi\n");
-        root_commands.push_str("rm -f /etc/init.d/zapret /etc/rc.d/zapret 2>/dev/null || true\n");
-        root_commands.push_str("dinitctl stop zapret 2>/dev/null || true\n");
-        root_commands.push_str("dinitctl disable zapret 2>/dev/null || true\n");
-        root_commands.push_str("rm -f /etc/dinit.d/zapret /etc/dinit.d/boot.d/zapret 2>/dev/null || true\n");
+        root_commands.push_str("rm -f /etc/init.d/zapret /etc/rc.d/zapret /etc/dinit.d/zapret /etc/dinit.d/boot.d/zapret /etc/sv/zapret 2>/dev/null || true\n");
         root_commands.push_str("killall -9 nfqws tpws dvtws 2>/dev/null || pkill -9 -x nfqws 2>/dev/null || pkill -9 -x tpws 2>/dev/null || true\n");
-
-        if overwrite && zapret_full_path.exists() {
+        if overwrite {
             root_commands.push_str("echo \"STATUS:CLEANING\"\n");
-            root_commands.push_str(&format!("rm -rf '{}'\n", zapret_path_str.replace('\'', "'\\''")));
+            root_commands.push_str("rm -rf /opt/zapret 2>/dev/null || true\n");
         }
         if cancel_flag_thread.load(Ordering::Relaxed) { return; }
         let binary_deps = vec!["git", "curl", "ipset", "iptables", "make", "gcc", "dig", "dnscrypt-proxy"];
@@ -3595,6 +3596,16 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                 root_commands.push_str("systemctl start dnscrypt-proxy.service\n");
             }
         }
+        root_commands.push_str("if [ ! -d /opt/zapret ] || [ ! -f /opt/zapret/blockcheck.sh ]; then\n");
+        root_commands.push_str("  echo \"STATUS:DOWNLOADING_ZAPRET\"\n");
+        root_commands.push_str("  rm -rf /opt/zapret 2>/dev/null || true\n");
+        root_commands.push_str("  git clone --depth=1 https://github.com/bol-van/zapret.git /opt/zapret\n");
+        root_commands.push_str("  git config --global --add safe.directory /opt/zapret || true\n");
+        root_commands.push_str("  echo \"STATUS:BUILDING_ZAPRET\"\n");
+        root_commands.push_str("  make -C /opt/zapret\n");
+        root_commands.push_str("  chown -R root:root /opt/zapret\n");
+        root_commands.push_str("  chmod -R 755 /opt/zapret\n");
+        root_commands.push_str("fi\n");
         root_commands.push_str("echo \"STATUS:POLKIT_SETUP\"\n");
         root_commands.push_str(get_polkit_setup_script());
         if cancel_flag_thread.load(Ordering::Relaxed) { return; }
@@ -3639,6 +3650,10 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                             let _ = sender.send(AppMsg::Status(t("DNS ayarları yapılıyor...")));
                         } else if l.contains("STATUS:SETTING_DNS") {
                             let _ = sender.send(AppMsg::Status(t("Cloudflare DNS ayarlanıyor...")));
+                        } else if l.contains("STATUS:DOWNLOADING_ZAPRET") {
+                            let _ = sender.send(AppMsg::Status(t("Zapret deposu indiriliyor...")));
+                        } else if l.contains("STATUS:BUILDING_ZAPRET") {
+                            let _ = sender.send(AppMsg::Status(t("Zapret derleniyor (make)...")));
                         } else if l.contains("STATUS:FINALIZING") {
                             let _ = sender.send(AppMsg::Status(t("Ağ ayarları ve servisler başlatılıyor...")));
                         }
@@ -3651,9 +3666,10 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
             let status = child.wait();
             match status {
                 Ok(s) if s.success() => {
-                    let _ = sender.send(AppMsg::Status(t("NetworkManager Bekleniyor...")));
+                    let _ = sender.send(AppMsg::Status(t("Tamamlanıyor...")));
                     let _ = fs::remove_file(script_path);
-                    thread::sleep(Duration::from_secs(10));
+                    thread::sleep(Duration::from_millis(500));
+                    let _ = sender.send(AppMsg::Done(Ok(())));
                 },
                 Ok(s) => {
                     let error_msg = if !last_error_line.is_empty() {
@@ -3671,86 +3687,6 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                     return;
                 }
             }
-        }
-        if cancel_flag_thread.load(Ordering::Relaxed) { return; }
-        if !zapret_full_path.exists() {
-            let _ = sender.send(AppMsg::Status(t("Zapret deposu indiriliyor...")));
-            let git_output = Command::new("git")
-                .env("GIT_CONFIG_GLOBAL", "/dev/null")
-                .env("GIT_CONFIG_SYSTEM", "/dev/null")
-                .args(["clone", "https://github.com/bol-van/zapret.git", zapret_path_str.as_str()])
-                .output();
-            match git_output {
-                Ok(output) => {
-                    if !output.stdout.is_empty() {
-                         let out = String::from_utf8_lossy(&output.stdout);
-                         println!("[GIT_OUT]: {}", out);
-                         log_to_file(&format!("[GIT_OUT]: {}", out));
-                    }
-                    if !output.stderr.is_empty() {
-                         let err = String::from_utf8_lossy(&output.stderr);
-                         println!("[GIT_ERR]: {}", err);
-                         log_to_file(&format!("[GIT_ERR]: {}", err));
-                    }
-                    if output.status.success() {
-                        if cancel_flag_thread.load(Ordering::Relaxed) { return; }
-                        let _ = sender.send(AppMsg::Status(t("Zapret derleniyor (make)...")));
-                        let mut make_cmd = Command::new("make");
-                        make_cmd.arg("-C").arg(&zapret_full_path);
-                        make_cmd.stdout(Stdio::piped());
-                        make_cmd.stderr(Stdio::piped());
-                        if let Ok(mut child) = make_cmd.spawn() {
-                            let _ = sender.send(AppMsg::PID(child.id()));
-                            let mut make_last_error = String::new();
-                            if let Some(stdout) = child.stdout.take() {
-                                let reader = BufReader::new(stdout);
-                                for line in reader.lines() {
-                                    if let Ok(l) = line { 
-                                        println!("[MAKE_OUT]: {}", l); 
-                                        log_to_file(&format!("[MAKE_OUT]: {}", l));
-                                        make_last_error = l;
-                                    }
-                                }
-                            }
-                            if let Some(stderr) = child.stderr.take() {
-                                let reader = BufReader::new(stderr);
-                                for line in reader.lines() {
-                                    if let Ok(l) = line {
-                                        println!("[MAKE_ERR]: {}", l);
-                                        log_to_file(&format!("[MAKE_ERR]: {}", l));
-                                        make_last_error = l;
-                                    }
-                                }
-                            }
-                            let make_result = child.wait();
-                            if cancel_flag_thread.load(Ordering::Relaxed) { return; }
-                            match make_result {
-                                Ok(m) if m.success() => {
-                                    let _ = sender.send(AppMsg::Done(Ok(())));
-                                },
-                                Ok(m) => {
-                                    let _ = sender.send(AppMsg::Done(Err(io::Error::new(io::ErrorKind::Other, t("Make hatası ({c}): {e}").replace("{c}", &m.code().unwrap_or(-1).to_string()).replace("{e}", &make_last_error)))));
-                                },
-                                Err(e) => {
-                                    let _ = sender.send(AppMsg::Done(Err(e)));
-                                }
-                            }
-                        } else {
-                            let _ = sender.send(AppMsg::Done(Err(io::Error::new(io::ErrorKind::Other, t("Make komutu başlatılamadı. 'make' kurulu mu?")))));
-                        }
-                    } else {
-                         let _ = sender.send(AppMsg::Done(Err(io::Error::new(io::ErrorKind::Other, t("Git clone hatası.")))));
-                    }
-                },
-                Err(e) => {
-                    let _ = sender.send(AppMsg::Done(Err(e)));
-                }
-            }
-        } else {
-             let _ = sender.send(AppMsg::Status(t("Mevcut zapret klasörü kullanılıyor.")));
-             thread::sleep(Duration::from_millis(500));
-             if cancel_flag_thread.load(Ordering::Relaxed) { return; }
-             let _ = sender.send(AppMsg::Done(Ok(())));
         }
     });
     glib::timeout_add_local(Duration::from_millis(100), move || {
@@ -3810,7 +3746,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
 fn ensure_polkit_rules_installed() {
     let control_file = Path::new("/usr/bin/zapret-control");
     let control_content = fs::read_to_string(control_file).unwrap_or_default();
-    if control_file.exists() && control_content.contains("# VERSION: 2") && control_content.contains("pkill -9 -P") {
+    if control_file.exists() && control_content.contains("# VERSION: 3") && control_content.contains("pkill -9 -P") {
         return;
     }
     if !Path::new("/opt/zapret").exists() {
@@ -3838,7 +3774,7 @@ fn get_polkit_setup_script() -> &'static str {
     r#"mkdir -p /opt/zapret /etc/polkit-1/rules.d /usr/bin 2>/dev/null || true
 cat << 'EOF' > /usr/bin/zapret-control
 #!/bin/sh
-# VERSION: 2
+# VERSION: 3
 set -e
 
 restart_service() {
@@ -3871,15 +3807,19 @@ case "$1" in
     apply-config)
         temp_cfg="$2"
         temp_hosts="$3"
-        if [ -n "$temp_cfg" ] && [ -f "$temp_cfg" ]; then
+        if [ -n "$temp_cfg" ] && [ -f "$temp_cfg" ] && [ ! -L "$temp_cfg" ]; then
             mkdir -p /opt/zapret
-            mv -f "$temp_cfg" /opt/zapret/config
+            cp -f "$temp_cfg" /opt/zapret/config
             chmod 644 /opt/zapret/config
+            chown root:root /opt/zapret/config 2>/dev/null || true
+            rm -f "$temp_cfg"
         fi
-        if [ -n "$temp_hosts" ] && [ -f "$temp_hosts" ]; then
+        if [ -n "$temp_hosts" ] && [ -f "$temp_hosts" ] && [ ! -L "$temp_hosts" ]; then
             mkdir -p /opt/zapret/ipset
-            mv -f "$temp_hosts" /opt/zapret/ipset/zapret-hosts-user.txt
+            cp -f "$temp_hosts" /opt/zapret/ipset/zapret-hosts-user.txt
             chmod 644 /opt/zapret/ipset/zapret-hosts-user.txt
+            chown root:root /opt/zapret/ipset/zapret-hosts-user.txt 2>/dev/null || true
+            rm -f "$temp_hosts"
         fi
         restart_service
         ;;
@@ -3914,20 +3854,30 @@ case "$1" in
         shift
         repeats="$1"
         scan_level="$2"
-        zapret_dir="$3"
-        shift 3
+        shift 2
         domains="$*"
-        if [ -n "$zapret_dir" ] && [ -f "$zapret_dir/blockcheck.sh" ]; then
-            BATCH=1 REPEATS="$repeats" SCANLEVEL="$scan_level" SKIP_TPWS=1 ENABLE_HTTP=1 ENABLE_HTTPS_TLS12=1 ENABLE_HTTPS_TLS13=1 ZAPRET_BASE="$zapret_dir" DOMAINS="$domains" "$zapret_dir/blockcheck.sh"
+        if [ -f /opt/zapret/blockcheck.sh ]; then
+            if ! echo "$repeats" | grep -Eq '^[0-9]+$'; then repeats=1; fi
+            case "$scan_level" in
+                quick|standard|force) ;;
+                *) scan_level="standard" ;;
+            esac
+            cd /opt/zapret
+            BATCH=1 REPEATS="$repeats" SCANLEVEL="$scan_level" SKIP_TPWS=1 ENABLE_HTTP=1 ENABLE_HTTPS_TLS12=1 ENABLE_HTTPS_TLS13=1 ZAPRET_BASE="/opt/zapret" DOMAINS="$domains" /bin/sh /opt/zapret/blockcheck.sh
         fi
         ;;
     easy-install)
         shift
-        zapret_dir="$1"
-        input_file="$2"
-        if [ -n "$zapret_dir" ] && [ -f "$zapret_dir/install_easy.sh" ] && [ -f "$input_file" ]; then
-            export ZAPRET_BASE="$zapret_dir"
-            "$zapret_dir/install_easy.sh" < "$input_file"
+        input_file="$1"
+        if [ -f /opt/zapret/install_easy.sh ]; then
+            export ZAPRET_BASE="/opt/zapret"
+            cd /opt/zapret
+            if [ -n "$input_file" ] && [ -f "$input_file" ] && [ ! -L "$input_file" ]; then
+                /bin/sh /opt/zapret/install_easy.sh < "$input_file"
+                rm -f "$input_file"
+            else
+                printf "Y\nY\nN\n1\nN\nN\nY\nN\n\n\n" | /bin/sh /opt/zapret/install_easy.sh
+            fi
             sed -i 's/^NFQWS_ENABLE=.*/NFQWS_ENABLE=1/' /opt/zapret/config 2>/dev/null || true
             cp -f /usr/bin/zapret-control /opt/zapret/zapret-control.sh 2>/dev/null || true
             chmod 755 /opt/zapret/zapret-control.sh 2>/dev/null || true
@@ -3936,7 +3886,7 @@ case "$1" in
         ;;
     kill-pid)
         target_pid="$2"
-        if [ -n "$target_pid" ] && echo "$target_pid" | grep -Eq '^[0-9]+$' && [ "$target_pid" -gt 0 ]; then
+        if [ -n "$target_pid" ] && echo "$target_pid" | grep -Eq '^[0-9]+$' && [ "$target_pid" -gt 100 ]; then
             for cpid in $(pgrep -P "$target_pid" 2>/dev/null); do
                 pkill -9 -P "$cpid" 2>/dev/null || true
                 kill -9 "$cpid" 2>/dev/null || true
@@ -3951,10 +3901,9 @@ case "$1" in
         pkill -9 -x dvtws 2>/dev/null || true
         pkill -9 -x mdig 2>/dev/null || true
         pkill -9 -x ip2net 2>/dev/null || true
-        pkill -9 -x curl 2>/dev/null || true
         ;;
     *)
-        echo "Usage: $0 {start|stop|restart|cat-config|apply-config <cfg> [hosts]|update|uninstall|blockcheck|easy-install|kill-pid}"
+        echo "Usage: $0 {start|stop|restart|cat-config|apply-config <cfg> [hosts]|update|uninstall|blockcheck <repeats> <level> [domains]|easy-install [input_file]|kill-pid <pid>}"
         exit 1
         ;;
 esac
@@ -3978,9 +3927,7 @@ polkit.addRule(function(action, subject) {
         var prog = action.lookup("program");
         if (prog && (
             prog == "/usr/bin/zapret-control" ||
-            prog == "/opt/zapret/zapret-control.sh" ||
-            prog == "/opt/zapret/install_easy.sh" ||
-            prog == "/opt/zapret/blockcheck.sh"
+            prog == "/opt/zapret/zapret-control.sh"
         ) && (subject.user == "$CURRENT_USER" || subject.isInGroup("wheel") || subject.isInGroup("sudo"))) {
             return polkit.Result.YES;
         }

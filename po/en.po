@@ -459,6 +459,9 @@ msgstr "Save and Apply"
 msgid "Profil {} hostlist kaydedildi ve uygulandı."
 msgstr "Profile {} hostlist saved and applied."
 
+msgid "Profil {} hostlist kaydedildi."
+msgstr "Profile {} hostlist saved."
+
 msgid "Mevcut Kurulum Tespit Edildi"
 msgstr "Existing Installation Detected"
 

@@ -459,6 +459,9 @@ msgstr "Сохранить и применить"
 msgid "Profil {} hostlist kaydedildi ve uygulandı."
 msgstr "Список хостов для Профиля {} сохранен и применен."
 
+msgid "Profil {} hostlist kaydedildi."
+msgstr "Список хостов для Профиля {} сохранен."
+
 msgid "Mevcut Kurulum Tespit Edildi"
 msgstr "Обнаружена существующая установка"
 
