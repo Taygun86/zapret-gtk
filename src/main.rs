@@ -523,7 +523,7 @@ enum TestMsg {
 fn main() {
     rotate_logs();
     init_i18n();
-    log_to_file("Application started (v0.5.3)");
+    log_to_file("Application started (v0.5.4)");
     ensure_polkit_rules_installed();
     let app = Application::builder()
         .application_id("com.ornek.zapret-gtk")
@@ -2041,7 +2041,7 @@ fn build_ui(app: &Application) {
             .transient_for(&win_about)
             .modal(true)
             .program_name("Zapret GTK")
-            .version("0.5.3")
+            .version("0.5.4")
             .logo(&texture)
             .comments(&t("Zapret için modern GTK4 arayüzü."))
             .website("https://github.com/Taygun86/zapret-gtk")
@@ -3786,7 +3786,7 @@ fn ensure_polkit_rules_installed() {
     let control_file = Path::new("/usr/bin/zapret-control");
     let rule_file = Path::new("/run/polkit-1/rules.d/90-zapret-gtk.rules");
     let control_content = fs::read_to_string(control_file).unwrap_or_default();
-    if control_file.exists() && control_content.contains("# VERSION: 8") && control_content.contains("apply-strategy") && rule_file.exists() {
+    if control_file.exists() && control_content.contains("# VERSION: 9") && control_content.contains("apply-strategy") && rule_file.exists() {
         return;
     }
     if !Path::new("/opt/zapret").exists() {
@@ -3821,7 +3821,7 @@ fn get_polkit_setup_script() -> &'static str {
 rm -f /etc/polkit-1/rules.d/90-zapret-gtk.rules 2>/dev/null || true
 cat << 'EOF' > /usr/bin/zapret-control
 #!/bin/sh
-# VERSION: 8
+# VERSION: 9
 set -e
 export LC_ALL=C
 
@@ -3886,7 +3886,32 @@ case "$1" in
             exit 1
         fi
         if [ -f /opt/zapret/config ]; then
-            sed -i "s|^NFQWS_OPT=.*|NFQWS_OPT=\"$raw_strat\"|" /opt/zapret/config
+            awk -v new_opt="$raw_strat" '
+                BEGIN { in_opt = 0; replaced = 0 }
+                /^NFQWS_OPT=/ {
+                    print "NFQWS_OPT=\"" new_opt "\""
+                    replaced = 1
+                    q = gsub(/"/, "\"", $0)
+                    if (q % 2 != 0) {
+                        in_opt = 1
+                    }
+                    next
+                }
+                in_opt {
+                    if (index($0, "\"") > 0) {
+                        in_opt = 0
+                    }
+                    next
+                }
+                /^--filter-/ || /^--dpi-desync/ || /^"$/ { next }
+                { print }
+                END {
+                    if (!replaced) {
+                        print "NFQWS_OPT=\"" new_opt "\""
+                    }
+                }
+            ' /opt/zapret/config > /opt/zapret/config.tmp && mv -f /opt/zapret/config.tmp /opt/zapret/config
+            chmod 644 /opt/zapret/config
         fi
         restart_service
         ;;
@@ -3960,17 +3985,12 @@ case "$1" in
         ;;
     cleanup-session)
         target_pid="$2"
-        if [ -n "$target_pid" ] && echo "$target_pid" | grep -Eq '^[0-9]+$'; then
+        if [ -n "$target_pid" ] && echo "$target_pid" | grep -Eq '^[0-9]+$' && [ "$target_pid" -gt 0 ]; then
             kill_proc_tree "$target_pid"
         fi
         for p in $(pgrep -f '/opt/zapret/blockcheck.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done
         for p in $(pgrep -f '/opt/zapret/install_easy.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done
         for p in $(pgrep -f 'zapret_installer_job.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done
-        pkill -9 -x nfqws 2>/dev/null || true
-        pkill -9 -x tpws 2>/dev/null || true
-        pkill -9 -x dvtws 2>/dev/null || true
-        pkill -9 -x mdig 2>/dev/null || true
-        pkill -9 -x ip2net 2>/dev/null || true
         rm -f /run/polkit-1/rules.d/90-zapret-gtk.rules 2>/dev/null || true
         ;;
     clean-session)
@@ -4007,6 +4027,25 @@ esac
 EOF
 chmod 755 /usr/bin/zapret-control 2>/dev/null || true
 rm -f /opt/zapret/zapret-control.sh 2>/dev/null || true
+
+if [ -f /opt/zapret/config ] && grep -q '^--filter-' /opt/zapret/config 2>/dev/null; then
+    awk '
+        BEGIN { in_opt = 0 }
+        /^NFQWS_OPT=/ {
+            print $0
+            q = gsub(/"/, "\"", $0)
+            if (q % 2 != 0) in_opt = 1
+            next
+        }
+        in_opt {
+            if (index($0, "\"") > 0) in_opt = 0
+            next
+        }
+        /^--filter-/ || /^--dpi-desync/ || /^"$/ { next }
+        { print }
+    ' /opt/zapret/config > /opt/zapret/config.tmp && mv -f /opt/zapret/config.tmp /opt/zapret/config
+    chmod 644 /opt/zapret/config
+fi
 
 CURRENT_USER=""
 if [ -n "$PKEXEC_UID" ]; then
