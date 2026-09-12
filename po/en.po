@@ -494,3 +494,40 @@ msgstr "Stopped"
 
 msgid "Config dosyası okunamadı veya Zapret kurulu değil."
 msgstr "Configuration file could not be read or Zapret is not installed."
+
+msgid "Biçimlendirilmiş strateji geçerli değil."
+msgstr "Formatted strategy is not valid."
+
+msgid "Dosya içerisinde geçerli bir strateji bulunamadı."
+msgstr "No valid strategy found in the file."
+
+msgid "Dosya içerisinde geçerli bir strateji nesnesi bulunamadı."
+msgstr "No valid strategy object found in the file."
+
+msgid "Dosya içerisinde herhangi bir strateji bulunamadı."
+msgstr "No strategies found in the file."
+
+msgid "Geçerli test edilecek alan adı bulunamadı."
+msgstr "No valid domain names found to test."
+
+msgid "Geçersiz dosya formatı: JSON dizisi [...] formatında olmalıdır."
+msgstr "Invalid file format: Must be a JSON array [...] format."
+
+msgid "Geçersiz veya güvensiz karakterler içeren strateji tespit edildi."
+msgstr "Strategy containing invalid or unsafe characters detected."
+
+msgid "Güvenlik Uyarısı"
+msgstr "Security Warning"
+
+msgid "Güvenlik Uyarısı: Geçersiz veya riskli parametre içeren strateji tespit edildi"
+msgstr "Security Warning: Strategy containing invalid or risky parameters detected"
+
+msgid "Hostlist uygulanamadı:\n{}"
+msgstr "Failed to apply hostlist:\n{}"
+
+msgid "Strateji uygulanamadı:\n{}"
+msgstr "Failed to apply strategy:\n{}"
+
+msgid "Tamamlanıyor..."
+msgstr "Completing..."
+

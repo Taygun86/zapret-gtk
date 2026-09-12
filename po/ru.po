@@ -487,3 +487,40 @@ msgstr "Остановлено"
 
 msgid "Config dosyası okunamadı veya Zapret kurulu değil."
 msgstr "Не удалось прочитать файл конфигурации или Zapret не установлен."
+
+msgid "Biçimlendirilmiş strateji geçerli değil."
+msgstr "Сформированная стратегия недействительна."
+
+msgid "Dosya içerisinde geçerli bir strateji bulunamadı."
+msgstr "В файле не найдено допустимой стратегии."
+
+msgid "Dosya içerisinde geçerli bir strateji nesnesi bulunamadı."
+msgstr "В файле не найден допустимый объект стратегии."
+
+msgid "Dosya içerisinde herhangi bir strateji bulunamadı."
+msgstr "В файле не найдено ни одной стратегии."
+
+msgid "Geçerli test edilecek alan adı bulunamadı."
+msgstr "Не найдено допустимых доменных имен для тестирования."
+
+msgid "Geçersiz dosya formatı: JSON dizisi [...] formatında olmalıdır."
+msgstr "Неверный формат файла: должен быть в формате массива JSON [...]."
+
+msgid "Geçersiz veya güvensiz karakterler içeren strateji tespit edildi."
+msgstr "Обнаружена стратегия, содержащая недопустимые или небезопасные символы."
+
+msgid "Güvenlik Uyarısı"
+msgstr "Предупреждение безопасности"
+
+msgid "Güvenlik Uyarısı: Geçersiz veya riskli parametre içeren strateji tespit edildi"
+msgstr "Предупреждение безопасности: обнаружена стратегия с недопустимыми или рискованными параметрами"
+
+msgid "Hostlist uygulanamadı:\n{}"
+msgstr "Не удалось применить список хостов:\n{}"
+
+msgid "Strateji uygulanamadı:\n{}"
+msgstr "Не удалось применить стратегию:\n{}"
+
+msgid "Tamamlanıyor..."
+msgstr "Завершение..."
+
