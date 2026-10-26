@@ -524,3 +524,13 @@ msgstr "Не удалось применить стратегию:\n{}"
 msgid "Tamamlanıyor..."
 msgstr "Завершение..."
 
+msgid "Sistem kontrol ediliyor..."
+msgstr "Проверка системы..."
+
+msgid "Yetki kuralları yapılandırılıyor..."
+msgstr "Настройка правил авторизации..."
+
+msgid "Hedef Sürüm"
+msgstr "Целевая версия"
+
+

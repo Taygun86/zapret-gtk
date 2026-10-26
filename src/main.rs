@@ -523,7 +523,7 @@ enum TestMsg {
 fn main() {
     rotate_logs();
     init_i18n();
-    log_to_file("Application started (v0.5.4)");
+    log_to_file("Application started (v0.5.5)");
     ensure_polkit_rules_installed();
     let app = Application::builder()
         .application_id("com.ornek.zapret-gtk")
@@ -1328,61 +1328,41 @@ fn build_ui(app: &Application) {
     content_box_status.append(&bottom_actions_box);
 
     let has_update_status = Rc::new(Cell::new(None::<bool>));
+    let is_updating = Rc::new(Cell::new(false));
+    let update_in_progress = Arc::new(AtomicBool::new(false));
+    let upd_check_in_flight = Arc::new(AtomicBool::new(false));
+    let cached_remote_hash = Arc::new(Mutex::new(None::<String>));
+
     let has_update_timer = has_update_status.clone();
+    let is_updating_timer = is_updating.clone();
+    let update_in_progress_timer = update_in_progress.clone();
+    let upd_check_in_flight_timer = upd_check_in_flight.clone();
+    let cached_remote_hash_timer = cached_remote_hash.clone();
     let status_label_mgmt_timer = status_label_mgmt.clone();
     let start_btn_timer = start_service_btn.clone();
     let stop_btn_timer = stop_service_btn.clone();
-    let update_btn_timer = update_service_btn.clone();
 
-    let (upd_check_sender, upd_check_receiver) = mpsc::channel::<Option<bool>>();
+    let (upd_check_sender, upd_check_receiver) = mpsc::channel::<Option<(bool, String)>>();
     let upd_check_sender_timer = upd_check_sender.clone();
 
     glib::timeout_add_local(Duration::from_secs(10), move || {
-        let init_sys = get_init_system();
-        let mut is_active = false;
-        if init_sys == "systemd" {
-            if let Ok(o) = Command::new("systemctl").arg("is-active").arg("zapret").output() {
-                if String::from_utf8_lossy(&o.stdout).trim() == "active" { is_active = true; }
-            }
-        } else if init_sys == "openrc" {
-            if let Ok(o) = Command::new("rc-service").arg("zapret").arg("status").output() {
-                if o.status.success() { is_active = true; }
-            }
-        } else if init_sys == "runit" {
-            if let Ok(o) = Command::new("sv").arg("status").arg("zapret").output() {
-                if String::from_utf8_lossy(&o.stdout).trim().starts_with("run:") { is_active = true; }
-            }
-        } else if init_sys == "sysvinit" {
-            if let Ok(o) = Command::new("service").arg("zapret").arg("status").output() {
-                let out = String::from_utf8_lossy(&o.stdout);
-                if out.contains("is running") || o.status.success() { is_active = true; }
-            }
-        } else if init_sys == "dinit" {
-            if let Ok(o) = Command::new("dinitctl").arg("status").arg("zapret").output() {
-                let out = String::from_utf8_lossy(&o.stdout);
-                if out.contains("State: STARTED") { is_active = true; }
-            }
-        } else if let Ok(o) = Command::new("pgrep").arg("-x").arg("nfqws").output() {
-            if o.status.success() { is_active = true; }
+        if is_updating_timer.get() || update_in_progress_timer.load(Ordering::SeqCst) {
+            return glib::ControlFlow::Continue;
         }
 
-        let s_check = upd_check_sender_timer.clone();
-        thread::spawn(move || {
-            let upd = check_zapret_update_available();
-            let _ = s_check.send(upd);
-        });
+        let is_active = is_zapret_service_active();
 
-        while let Ok(upd) = upd_check_receiver.try_recv() {
-            has_update_timer.set(upd);
-            if upd == Some(true) {
-                update_btn_timer.set_visible(true);
-                update_btn_timer.add_css_class("suggested-action");
-                update_btn_timer.set_tooltip_text(Some(&t("Yeni bir Zapret güncellemesi mevcut!")));
-            } else {
-                update_btn_timer.set_visible(false);
-                update_btn_timer.remove_css_class("suggested-action");
-                update_btn_timer.set_tooltip_text(Some(&t("Zapret güncel.")));
-            }
+        if !upd_check_in_flight_timer.swap(true, Ordering::SeqCst) {
+            let s_check = upd_check_sender_timer.clone();
+            let in_flight_flag = upd_check_in_flight_timer.clone();
+            let upd_prog_flag = update_in_progress_timer.clone();
+            thread::spawn(move || {
+                let upd = check_zapret_update_available_with_hash();
+                if !upd_prog_flag.load(Ordering::SeqCst) {
+                    let _ = s_check.send(upd);
+                }
+                in_flight_flag.store(false, Ordering::SeqCst);
+            });
         }
 
         let update_suffix = match has_update_timer.get() {
@@ -1421,6 +1401,14 @@ fn build_ui(app: &Application) {
     let page_status_clone = page_status.clone();
     let search_strat_btn_for_nav = search_strat_settings_btn.clone();
     let curr_p_for_settings = current_profile_id.clone();
+    let is_updating_settings = is_updating.clone();
+    let update_in_progress_settings = update_in_progress.clone();
+    let upd_check_in_flight_settings = upd_check_in_flight.clone();
+    let upd_check_sender_settings = upd_check_sender.clone();
+    let has_update_settings = has_update_status.clone();
+    let status_lbl_settings = status_label_mgmt.clone();
+    let start_btn_settings = start_service_btn.clone();
+    let stop_btn_settings = stop_service_btn.clone();
     settings_mgmt_btn.connect_clicked(move |_| {
         let act_id = curr_p_for_settings.get();
         let current_items = extract_strategies_from_list_box(&list_mgmt_for_settings);
@@ -1431,6 +1419,39 @@ fn build_ui(app: &Application) {
             search_strat_btn_for_nav.add_css_class("warning");
         } else {
             search_strat_btn_for_nav.remove_css_class("warning");
+        }
+        if !is_updating_settings.get() && !update_in_progress_settings.load(Ordering::SeqCst) {
+            let is_active = is_zapret_service_active();
+            let update_suffix = match has_update_settings.get() {
+                Some(true) => format!(" • {}", t("Güncelleme Mevcut")),
+                Some(false) => format!(" • {}", t("Güncel")),
+                None => String::new(),
+            };
+            if is_active {
+                status_lbl_settings.set_label(&format!("{}{}", t("Çalışıyor (Active)"), update_suffix));
+                status_lbl_settings.add_css_class("success");
+                status_lbl_settings.remove_css_class("error");
+                start_btn_settings.set_visible(false);
+                stop_btn_settings.set_visible(true);
+            } else {
+                status_lbl_settings.set_label(&format!("{}{}", t("Durdu"), update_suffix));
+                status_lbl_settings.add_css_class("error");
+                status_lbl_settings.remove_css_class("success");
+                start_btn_settings.set_visible(true);
+                stop_btn_settings.set_visible(false);
+            }
+            if !upd_check_in_flight_settings.swap(true, Ordering::SeqCst) {
+                let s_check = upd_check_sender_settings.clone();
+                let in_flight_flag = upd_check_in_flight_settings.clone();
+                let upd_prog_flag = update_in_progress_settings.clone();
+                thread::spawn(move || {
+                    let upd = check_zapret_update_available_with_hash();
+                    if !upd_prog_flag.load(Ordering::SeqCst) {
+                        let _ = s_check.send(upd);
+                    }
+                    in_flight_flag.store(false, Ordering::SeqCst);
+                });
+            }
         }
         nav_view_for_settings.push(&page_status_clone);
     });
@@ -1460,29 +1481,36 @@ fn build_ui(app: &Application) {
         let inst_pid_opt = install_pid_on_close.lock().ok().and_then(|g| *g);
         let target_pid = pid_opt.or(inst_pid_opt).unwrap_or(0);
 
-        let hold_guard = app_for_close.hold();
-        let (tx, rx) = mpsc::channel::<()>();
+        let should_cleanup = Path::new("/usr/bin/zapret-control").exists()
+            && (Path::new("/run/zapret-gtk-polkit.active").exists()
+                || Path::new("/run/polkit-1/rules.d/90-zapret-gtk.rules").exists()
+                || target_pid > 0);
 
-        thread::spawn(move || {
-            let _ = Command::new("pkexec")
-                .arg(get_zapret_control_path())
-                .arg("cleanup-session")
-                .arg(target_pid.to_string())
-                .output();
+        if should_cleanup {
+            let hold_guard = app_for_close.hold();
+            let (tx, rx) = mpsc::channel::<()>();
 
-            let _ = tx.send(());
-        });
+            thread::spawn(move || {
+                let _ = Command::new("pkexec")
+                    .arg(get_zapret_control_path())
+                    .arg("cleanup-session")
+                    .arg(target_pid.to_string())
+                    .output();
 
-        let mut guard_opt = Some(hold_guard);
-        glib::timeout_add_local(Duration::from_millis(30), move || {
-            match rx.try_recv() {
-                Ok(()) | Err(mpsc::TryRecvError::Disconnected) => {
-                    guard_opt.take();
-                    glib::ControlFlow::Break
+                let _ = tx.send(());
+            });
+
+            let mut guard_opt = Some(hold_guard);
+            glib::timeout_add_local(Duration::from_millis(30), move || {
+                match rx.try_recv() {
+                    Ok(()) | Err(mpsc::TryRecvError::Disconnected) => {
+                        guard_opt.take();
+                        glib::ControlFlow::Break
+                    }
+                    Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
                 }
-                Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-            }
-        });
+            });
+        }
 
         glib::Propagation::Proceed
     });
@@ -1497,22 +1525,105 @@ fn build_ui(app: &Application) {
 
     let win_update = window.clone();
     let update_btn_click = update_service_btn.clone();
+    let start_btn_upd_click = start_service_btn.clone();
+    let stop_btn_upd_click = stop_service_btn.clone();
     let status_lbl_click = status_label_mgmt.clone();
-    let (upd_action_sender, upd_action_receiver) = mpsc::channel::<Result<(), String>>();
+    let (upd_action_sender, upd_action_receiver) = mpsc::channel::<Result<Option<String>, String>>();
 
     let win_action_timer = window.clone();
     let update_btn_action_timer = update_service_btn.clone();
+    let start_btn_action_timer = start_service_btn.clone();
+    let stop_btn_action_timer = stop_service_btn.clone();
     let status_lbl_action_timer = status_label_mgmt.clone();
     let has_update_action_timer = has_update_status.clone();
+    let is_updating_action_timer = is_updating.clone();
+    let update_in_progress_action_timer = update_in_progress.clone();
+    let cached_remote_hash_poll = cached_remote_hash_timer.clone();
     glib::timeout_add_local(Duration::from_millis(100), move || {
+        if is_updating_action_timer.get() || update_in_progress_action_timer.load(Ordering::SeqCst) {
+            while upd_check_receiver.try_recv().is_ok() {}
+        } else {
+            while let Ok(upd_res) = upd_check_receiver.try_recv() {
+                match upd_res {
+                    Some((has_upd, rem_hash)) => {
+                        if let Ok(mut guard) = cached_remote_hash_poll.lock() {
+                            *guard = Some(rem_hash);
+                        }
+                        has_update_action_timer.set(Some(has_upd));
+                        if has_upd {
+                            update_btn_action_timer.set_visible(true);
+                            update_btn_action_timer.set_sensitive(true);
+                            update_btn_action_timer.set_label(&t("Güncelle"));
+                            update_btn_action_timer.add_css_class("suggested-action");
+                            update_btn_action_timer.set_tooltip_text(Some(&t("Yeni bir Zapret güncellemesi mevcut!")));
+                        } else {
+                            update_btn_action_timer.set_visible(false);
+                            update_btn_action_timer.remove_css_class("suggested-action");
+                            update_btn_action_timer.set_tooltip_text(Some(&t("Zapret güncel.")));
+                        }
+                    }
+                    None => {
+                        has_update_action_timer.set(None);
+                        update_btn_action_timer.set_visible(false);
+                        update_btn_action_timer.remove_css_class("suggested-action");
+                    }
+                }
+                let is_active = is_zapret_service_active();
+                let update_suffix = match has_update_action_timer.get() {
+                    Some(true) => format!(" • {}", t("Güncelleme Mevcut")),
+                    Some(false) => format!(" • {}", t("Güncel")),
+                    None => String::new(),
+                };
+                if is_active {
+                    status_lbl_action_timer.set_label(&format!("{}{}", t("Çalışıyor (Active)"), update_suffix));
+                    status_lbl_action_timer.add_css_class("success");
+                    status_lbl_action_timer.remove_css_class("error");
+                    start_btn_action_timer.set_visible(false);
+                    stop_btn_action_timer.set_visible(true);
+                } else {
+                    status_lbl_action_timer.set_label(&format!("{}{}", t("Durdu"), update_suffix));
+                    status_lbl_action_timer.add_css_class("error");
+                    status_lbl_action_timer.remove_css_class("success");
+                    start_btn_action_timer.set_visible(true);
+                    stop_btn_action_timer.set_visible(false);
+                }
+            }
+        }
+
         match upd_action_receiver.try_recv() {
-            Ok(Ok(())) => {
+            Ok(Ok(new_hash_opt)) => {
+                while upd_check_receiver.try_recv().is_ok() {}
+                if let Some(h) = new_hash_opt {
+                    if let Ok(mut guard) = cached_remote_hash_poll.lock() {
+                        *guard = Some(h);
+                    }
+                }
+                is_updating_action_timer.set(false);
+                update_in_progress_action_timer.store(false, Ordering::SeqCst);
                 has_update_action_timer.set(Some(false));
+                update_btn_action_timer.set_label(&t("Güncelle"));
                 update_btn_action_timer.set_visible(false);
                 update_btn_action_timer.set_sensitive(true);
                 update_btn_action_timer.remove_css_class("suggested-action");
                 update_btn_action_timer.set_tooltip_text(Some(&t("Zapret güncel.")));
-                status_lbl_action_timer.set_label(&format!("{} • {}", t("Çalışıyor (Active)"), t("Güncel")));
+                start_btn_action_timer.set_sensitive(true);
+                stop_btn_action_timer.set_sensitive(true);
+
+                let is_active = is_zapret_service_active();
+                if is_active {
+                    status_lbl_action_timer.set_label(&format!("{} • {}", t("Çalışıyor (Active)"), t("Güncel")));
+                    status_lbl_action_timer.add_css_class("success");
+                    status_lbl_action_timer.remove_css_class("error");
+                    start_btn_action_timer.set_visible(false);
+                    stop_btn_action_timer.set_visible(true);
+                } else {
+                    status_lbl_action_timer.set_label(&format!("{} • {}", t("Durdu"), t("Güncel")));
+                    status_lbl_action_timer.add_css_class("error");
+                    status_lbl_action_timer.remove_css_class("success");
+                    start_btn_action_timer.set_visible(true);
+                    stop_btn_action_timer.set_visible(false);
+                }
+
                 let success_dlg = adw::MessageDialog::builder()
                     .transient_for(&win_action_timer)
                     .heading(&t("Başarılı"))
@@ -1522,7 +1633,30 @@ fn build_ui(app: &Application) {
                 success_dlg.present();
             },
             Ok(Err(err_text)) => {
+                while upd_check_receiver.try_recv().is_ok() {}
+                is_updating_action_timer.set(false);
+                update_in_progress_action_timer.store(false, Ordering::SeqCst);
+                update_btn_action_timer.set_label(&t("Güncelle"));
                 update_btn_action_timer.set_sensitive(true);
+                start_btn_action_timer.set_sensitive(true);
+                stop_btn_action_timer.set_sensitive(true);
+
+                let is_active = is_zapret_service_active();
+                let update_suffix = match has_update_action_timer.get() {
+                    Some(true) => format!(" • {}", t("Güncelleme Mevcut")),
+                    Some(false) => format!(" • {}", t("Güncel")),
+                    None => String::new(),
+                };
+                if is_active {
+                    status_lbl_action_timer.set_label(&format!("{}{}", t("Çalışıyor (Active)"), update_suffix));
+                    status_lbl_action_timer.add_css_class("success");
+                    status_lbl_action_timer.remove_css_class("error");
+                } else {
+                    status_lbl_action_timer.set_label(&format!("{}{}", t("Durdu"), update_suffix));
+                    status_lbl_action_timer.add_css_class("error");
+                    status_lbl_action_timer.remove_css_class("success");
+                }
+
                 let err_dlg = adw::MessageDialog::builder()
                     .transient_for(&win_action_timer)
                     .heading(&t("Güncelleme Hatası"))
@@ -1538,11 +1672,20 @@ fn build_ui(app: &Application) {
     });
 
     let upd_action_sender_click = upd_action_sender.clone();
+    let is_updating_click = is_updating.clone();
+    let update_in_progress_click = update_in_progress.clone();
+    let cached_remote_hash_click = cached_remote_hash.clone();
     update_service_btn.connect_clicked(move |_| {
-        let commit_hash_opt = get_zapret_remote_commit_hash();
+        if is_updating_click.get() || update_in_progress_click.load(Ordering::SeqCst) {
+            return;
+        }
+        let commit_hash_opt = cached_remote_hash_click
+            .lock()
+            .ok()
+            .and_then(|g| g.clone());
         let commit_info = match &commit_hash_opt {
-            Some(h) => format!("\n\n(Hedef Sürüm: {})", &h[..7.min(h.len())]),
-            None => String::new(),
+            Some(h) if !h.is_empty() => format!("\n\n({}: {})", t("Hedef Sürüm"), &h[..7.min(h.len())]),
+            _ => String::new(),
         };
         let body_text = format!("{}{}", t("Zapret'in en son sürümü indirilip yeniden derlenecek ve servis yeniden başlatılacak. Devam edilsin mi?"), commit_info);
         let dialog = adw::MessageDialog::builder()
@@ -1555,13 +1698,24 @@ fn build_ui(app: &Application) {
         dialog.set_response_appearance("update", ResponseAppearance::Suggested);
         
         let btn_dlg = update_btn_click.clone();
+        let start_btn_dlg = start_btn_upd_click.clone();
+        let stop_btn_dlg = stop_btn_upd_click.clone();
         let lbl_dlg = status_lbl_click.clone();
         let s_action = upd_action_sender_click.clone();
+        let is_upd_dlg = is_updating_click.clone();
+        let upd_prog_dlg = update_in_progress_click.clone();
         dialog.connect_response(None, move |d, response| {
             d.close();
             if response == "update" {
+                is_upd_dlg.set(true);
+                upd_prog_dlg.store(true, Ordering::SeqCst);
                 btn_dlg.set_sensitive(false);
+                btn_dlg.set_label(&t("Güncelleniyor..."));
+                start_btn_dlg.set_sensitive(false);
+                stop_btn_dlg.set_sensitive(false);
                 lbl_dlg.set_label(&t("Güncelleniyor..."));
+                lbl_dlg.remove_css_class("success");
+                lbl_dlg.remove_css_class("error");
                 let s_thread = s_action.clone();
                 
                 thread::spawn(move || {
@@ -1572,10 +1726,19 @@ fn build_ui(app: &Application) {
 
                     match res {
                         Ok(ref output) if output.status.success() => {
-                            let _ = s_thread.send(Ok(()));
+                            let new_local = get_zapret_local_commit_hash();
+                            let _ = s_thread.send(Ok(new_local));
                         },
                         Ok(ref output) => {
-                            let err_text = String::from_utf8_lossy(&output.stderr).to_string();
+                            let stderr_str = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                            let stdout_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                            let err_text = if !stderr_str.is_empty() {
+                                stderr_str
+                            } else if !stdout_str.is_empty() {
+                                stdout_str.lines().rev().take(5).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")
+                            } else {
+                                format!("Exit code: {}", output.status.code().unwrap_or(-1))
+                            };
                             let _ = s_thread.send(Err(err_text));
                         },
                         Err(ref e) => {
@@ -2041,7 +2204,7 @@ fn build_ui(app: &Application) {
             .transient_for(&win_about)
             .modal(true)
             .program_name("Zapret GTK")
-            .version("0.5.4")
+            .version("0.5.5")
             .logo(&texture)
             .comments(&t("Zapret için modern GTK4 arayüzü."))
             .website("https://github.com/Taygun86/zapret-gtk")
@@ -3487,8 +3650,8 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
     let (sender, receiver) = mpsc::channel();
     let cancel_flag_thread = cancel_flag.clone();
     thread::spawn(move || {
-        let _ = sender.send(AppMsg::Status("Sistem kontrol ediliyor...".to_string()));
-        let mut root_commands = String::from("#!/bin/sh\nset -e\nexec 2>&1\nexec < /dev/null\n");
+        let _ = sender.send(AppMsg::Status(t("Sistem kontrol ediliyor...")));
+        let mut root_commands = String::from("#!/bin/sh\nset -e\nexec 2>&1\nexec < /dev/null\ncd /tmp 2>/dev/null || cd /\n");
         let distro_id = get_distro_id();
         if cancel_flag_thread.load(Ordering::Relaxed) { return; }
         root_commands.push_str("systemctl stop zapret 2>/dev/null || true\n");
@@ -3619,6 +3782,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
         root_commands.push_str("  make -C /opt/zapret\n");
         root_commands.push_str("  chown -R root:root /opt/zapret\n");
         root_commands.push_str("  chmod -R 755 /opt/zapret\n");
+        root_commands.push_str("  if command -v restorecon >/dev/null 2>&1; then restorecon -R -F /opt/zapret 2>/dev/null || true; fi\n");
         root_commands.push_str("fi\n");
         root_commands.push_str("echo \"STATUS:POLKIT_SETUP\"\n");
         root_commands.push_str(get_polkit_setup_script());
@@ -3639,6 +3803,7 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                     .open(&script_path)
                 {
                     let _ = file.write_all(root_commands.as_bytes());
+                    let _ = file.sync_all();
                 }
             }
             println!("--- Installer Script Content ---\n{}\n--------------------------------", root_commands);
@@ -3685,6 +3850,8 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
                             let _ = sender.send(AppMsg::Status(t("Zapret deposu indiriliyor...")));
                         } else if l.contains("STATUS:BUILDING_ZAPRET") {
                             let _ = sender.send(AppMsg::Status(t("Zapret derleniyor (make)...")));
+                        } else if l.contains("STATUS:POLKIT_SETUP") {
+                            let _ = sender.send(AppMsg::Status(t("Yetki kuralları yapılandırılıyor...")));
                         } else if l.contains("STATUS:FINALIZING") {
                             let _ = sender.send(AppMsg::Status(t("Ağ ayarları ve servisler başlatılıyor...")));
                         }
@@ -3784,15 +3951,28 @@ fn run_installation(btn: Button, pb: ProgressBar, lbl: Label, placeholder: Label
 }
 fn ensure_polkit_rules_installed() {
     let control_file = Path::new("/usr/bin/zapret-control");
-    let rule_file = Path::new("/run/polkit-1/rules.d/90-zapret-gtk.rules");
+    let session_marker = Path::new("/run/zapret-gtk-polkit.active");
     let control_content = fs::read_to_string(control_file).unwrap_or_default();
-    if control_file.exists() && control_content.contains("# VERSION: 9") && control_content.contains("apply-strategy") && rule_file.exists() {
+    let is_latest_control = control_file.exists()
+        && control_content.contains("# VERSION: 11")
+        && control_content.contains("init-session")
+        && control_content.contains("apply-strategy");
+
+    if is_latest_control && session_marker.exists() {
         return;
     }
     if !Path::new("/opt/zapret").exists() {
         return;
     }
-    log_to_file("Ephemeral Polkit rule not active. Initializing runtime authorization on startup...");
+    if is_latest_control {
+        log_to_file("Polkit control script up to date. Activating ephemeral session rule on startup...");
+        let _ = Command::new("pkexec")
+            .arg(get_zapret_control_path())
+            .arg("init-session")
+            .output();
+        return;
+    }
+    log_to_file("Ephemeral Polkit rule not active or outdated. Initializing runtime authorization on startup...");
     let script = get_polkit_setup_script();
     let temp_script = get_secure_runtime_dir().join("zapret_polkit_init.sh");
     #[cfg(unix)]
@@ -3800,28 +3980,35 @@ fn ensure_polkit_rules_installed() {
         use std::fs::OpenOptions;
         use std::os::unix::fs::OpenOptionsExt;
         let _ = fs::remove_file(&temp_script);
-        if let Ok(mut f) = OpenOptions::new()
+        let write_ok = if let Ok(mut f) = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
             .mode(0o700)
             .open(&temp_script)
         {
-            let _ = f.write_all(format!("#!/bin/sh\nset -e\n{}\nrm -f \"{}\"\n", script, temp_script.display()).as_bytes());
+            let res = f.write_all(format!("#!/bin/sh\nset -e\ncd /tmp 2>/dev/null || cd /\n{}\nrm -f \"{}\"\n", script, temp_script.display()).as_bytes());
+            let _ = f.sync_all();
+            res.is_ok()
+        } else {
+            false
+        };
+        if write_ok {
             let _ = Command::new("pkexec")
                 .arg("/bin/sh")
                 .arg(&temp_script)
                 .output();
+            let _ = fs::remove_file(&temp_script);
         }
     }
 }
 
 fn get_polkit_setup_script() -> &'static str {
-    r#"mkdir -p /opt/zapret /run/polkit-1/rules.d /etc/polkit-1/rules.d /usr/bin 2>/dev/null || true
-rm -f /etc/polkit-1/rules.d/90-zapret-gtk.rules 2>/dev/null || true
-cat << 'EOF' > /usr/bin/zapret-control
+    r#"mkdir -p /opt/zapret /etc/polkit-1/rules.d /usr/bin 2>/dev/null || true
+rm -f /run/polkit-1/rules.d/90-zapret-gtk.rules /etc/polkit-1/localauthority/50-local.d/90-zapret-gtk.pkla /opt/zapret/zapret-control.sh 2>/dev/null || true
+cat << 'EOF' > /usr/bin/.zapret-control.tmp
 #!/bin/sh
-# VERSION: 9
+# VERSION: 11
 set -e
 export LC_ALL=C
 
@@ -3835,6 +4022,120 @@ stop_service() {
 
 start_service() {
     systemctl start zapret 2>/dev/null || rc-service zapret start 2>/dev/null || sv up zapret 2>/dev/null || service zapret start 2>/dev/null || dinitctl start zapret 2>/dev/null || true
+}
+
+reload_polkit_daemon() {
+    systemctl reload polkit 2>/dev/null || killall -HUP polkitd 2>/dev/null || pkill -HUP -x polkitd 2>/dev/null || true
+}
+
+install_session_polkit_rule() {
+    CURRENT_USER=""
+    if [ -n "$PKEXEC_UID" ]; then
+        CURRENT_USER=$(id -un "$PKEXEC_UID" 2>/dev/null || getent passwd "$PKEXEC_UID" 2>/dev/null | cut -d: -f1 || true)
+    fi
+    if [ -z "$CURRENT_USER" ] && [ -n "$SUDO_USER" ]; then
+        CURRENT_USER="$SUDO_USER"
+    fi
+    if [ -z "$CURRENT_USER" ]; then
+        CURRENT_USER=$(logname 2>/dev/null || true)
+    fi
+
+    if [ ! -d /etc/polkit-1/rules.d ]; then
+        mkdir -p /etc/polkit-1/rules.d 2>/dev/null || true
+        if getent group polkitd >/dev/null 2>&1; then
+            chown root:polkitd /etc/polkit-1/rules.d 2>/dev/null || true
+            chmod 750 /etc/polkit-1/rules.d 2>/dev/null || true
+        else
+            chmod 755 /etc/polkit-1/rules.d 2>/dev/null || true
+        fi
+        if command -v restorecon >/dev/null 2>&1; then
+            restorecon -F -R /etc/polkit-1 2>/dev/null || true
+        fi
+    fi
+
+    rm -f /run/polkit-1/rules.d/90-zapret-gtk.rules /etc/polkit-1/localauthority/50-local.d/90-zapret-gtk.pkla 2>/dev/null || true
+
+    RULE_TMP="/etc/polkit-1/rules.d/.90-zapret-gtk.rules.tmp"
+    RULE_DST="/etc/polkit-1/rules.d/90-zapret-gtk.rules"
+
+    if [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != "root" ] && echo "$CURRENT_USER" | grep -Eq '^[a-zA-Z0-9_.][a-zA-Z0-9_.-]*$'; then
+        cat << EOF_RULE > "$RULE_TMP"
+/* Zapret-GTK Ephemeral Runtime Rule */
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec") {
+        var prog = action.lookup("program");
+        if (prog && prog == "/usr/bin/zapret-control" && (subject.user == "$CURRENT_USER" || subject.isInGroup("wheel") || subject.isInGroup("sudo") || subject.isInGroup("admin"))) {
+            return polkit.Result.YES;
+        }
+    }
+});
+EOF_RULE
+    else
+        cat << 'EOF_RULE_GRP' > "$RULE_TMP"
+/* Zapret-GTK Ephemeral Runtime Rule */
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec") {
+        var prog = action.lookup("program");
+        if (prog && prog == "/usr/bin/zapret-control" && (subject.isInGroup("wheel") || subject.isInGroup("sudo") || subject.isInGroup("admin"))) {
+            return polkit.Result.YES;
+        }
+    }
+});
+EOF_RULE_GRP
+    fi
+
+    chmod 644 "$RULE_TMP" 2>/dev/null || true
+    if getent group polkitd >/dev/null 2>&1; then
+        chown root:polkitd "$RULE_TMP" 2>/dev/null || true
+    else
+        chown root:root "$RULE_TMP" 2>/dev/null || true
+    fi
+    if command -v restorecon >/dev/null 2>&1; then
+        restorecon -F "$RULE_TMP" 2>/dev/null || true
+    fi
+    mv -f "$RULE_TMP" "$RULE_DST"
+    if command -v restorecon >/dev/null 2>&1; then
+        restorecon -F "$RULE_DST" /usr/bin/zapret-control 2>/dev/null || true
+    fi
+
+    if [ -d /etc/tmpfiles.d ]; then
+        cat << 'EOF_TMPFILES' > /etc/tmpfiles.d/zapret-gtk.conf
+r! /etc/polkit-1/rules.d/90-zapret-gtk.rules
+r! /run/polkit-1/rules.d/90-zapret-gtk.rules
+r! /run/zapret-gtk-polkit.active
+EOF_TMPFILES
+        chmod 644 /etc/tmpfiles.d/zapret-gtk.conf 2>/dev/null || true
+        if command -v restorecon >/dev/null 2>&1; then
+            restorecon -F /etc/tmpfiles.d/zapret-gtk.conf 2>/dev/null || true
+        fi
+    fi
+
+    echo "active" > /run/zapret-gtk-polkit.active 2>/dev/null || true
+    chmod 644 /run/zapret-gtk-polkit.active 2>/dev/null || true
+    if command -v restorecon >/dev/null 2>&1; then
+        restorecon -F /run/zapret-gtk-polkit.active 2>/dev/null || true
+    fi
+
+    reload_polkit_daemon
+
+    if [ -n "$PKEXEC_UID" ]; then
+        U_HOME=$(getent passwd "$PKEXEC_UID" 2>/dev/null | cut -d: -f6 || true)
+        U_NAME=$(id -un "$PKEXEC_UID" 2>/dev/null || getent passwd "$PKEXEC_UID" 2>/dev/null | cut -d: -f1 || true)
+        if [ -n "$U_HOME" ] && [ -n "$U_NAME" ] && [ -d "$U_HOME/.config/zapret-gtk" ]; then
+            chown -R "$U_NAME:$U_NAME" "$U_HOME/.config/zapret-gtk" 2>/dev/null || true
+            chmod 700 "$U_HOME/.config/zapret-gtk" 2>/dev/null || true
+            chmod 600 "$U_HOME/.config/zapret-gtk"/* 2>/dev/null || true
+        fi
+    fi
+}
+
+remove_session_polkit_rule() {
+    rm -f /etc/polkit-1/rules.d/90-zapret-gtk.rules \
+          /etc/polkit-1/rules.d/.90-zapret-gtk.rules.tmp \
+          /run/polkit-1/rules.d/90-zapret-gtk.rules \
+          /etc/polkit-1/localauthority/50-local.d/90-zapret-gtk.pkla \
+          /run/zapret-gtk-polkit.active 2>/dev/null || true
+    reload_polkit_daemon
 }
 
 is_zapret_proc() {
@@ -3863,6 +4164,9 @@ kill_proc_tree() {
 }
 
 case "$1" in
+    init-session)
+        install_session_polkit_rule
+        ;;
     start)
         start_service
         ;;
@@ -3912,6 +4216,9 @@ case "$1" in
                 }
             ' /opt/zapret/config > /opt/zapret/config.tmp && mv -f /opt/zapret/config.tmp /opt/zapret/config
             chmod 644 /opt/zapret/config
+            if command -v restorecon >/dev/null 2>&1; then
+                restorecon -F /opt/zapret/config 2>/dev/null || true
+            fi
         fi
         restart_service
         ;;
@@ -3934,6 +4241,9 @@ case "$1" in
 
         if [ -f /opt/zapret/config ]; then
             sed -i "s|^MODE_FILTER=.*|MODE_FILTER=$mode|" /opt/zapret/config
+        fi
+        if command -v restorecon >/dev/null 2>&1; then
+            restorecon -F "$final_target" /opt/zapret/config 2>/dev/null || true
         fi
         restart_service
         ;;
@@ -3960,6 +4270,9 @@ case "$1" in
             printf "Y\nY\nN\n1\nN\nN\nY\nN\n\n\n" | /bin/sh /opt/zapret/install_easy.sh
             sed -i 's/^NFQWS_ENABLE=.*/NFQWS_ENABLE=1/' /opt/zapret/config 2>/dev/null || true
             rm -f /opt/zapret/zapret-control.sh 2>/dev/null || true
+            if command -v restorecon >/dev/null 2>&1; then
+                restorecon -R -F /opt/zapret /etc/systemd/system/zapret* 2>/dev/null || true
+            fi
             restart_service
         fi
         ;;
@@ -3991,17 +4304,37 @@ case "$1" in
         for p in $(pgrep -f '/opt/zapret/blockcheck.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done
         for p in $(pgrep -f '/opt/zapret/install_easy.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done
         for p in $(pgrep -f 'zapret_installer_job.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done
-        rm -f /run/polkit-1/rules.d/90-zapret-gtk.rules 2>/dev/null || true
+        remove_session_polkit_rule
         ;;
     clean-session)
-        rm -f /run/polkit-1/rules.d/90-zapret-gtk.rules 2>/dev/null || true
+        remove_session_polkit_rule
         ;;
     update)
         cd /opt/zapret
-        git fetch origin
-        git reset --hard origin/master
-        make -B
-        [ -f /opt/zapret/install_bin.sh ] && sh /opt/zapret/install_bin.sh || true
+        if [ -f /opt/zapret/config ]; then
+            cp -f /opt/zapret/config /tmp/zapret_config_upd.bak 2>/dev/null || true
+        fi
+        if [ -f /opt/zapret/ipset/zapret-hosts-user.txt ]; then
+            cp -f /opt/zapret/ipset/zapret-hosts-user.txt /tmp/zapret_hosts_upd.bak 2>/dev/null || true
+        fi
+        git -c safe.directory=/opt/zapret fetch --depth=1 origin HEAD 2>&1 || git -c safe.directory=/opt/zapret fetch origin 2>&1
+        git -c safe.directory=/opt/zapret reset --hard FETCH_HEAD 2>&1 || git -c safe.directory=/opt/zapret reset --hard origin/master 2>&1
+        make -B -C /opt/zapret 2>&1
+        [ -f /opt/zapret/install_bin.sh ] && sh /opt/zapret/install_bin.sh 2>&1 || true
+        if [ -f /tmp/zapret_config_upd.bak ]; then
+            mv -f /tmp/zapret_config_upd.bak /opt/zapret/config 2>/dev/null || true
+            chmod 644 /opt/zapret/config 2>/dev/null || true
+        fi
+        if [ -f /tmp/zapret_hosts_upd.bak ]; then
+            mkdir -p /opt/zapret/ipset 2>/dev/null || true
+            mv -f /tmp/zapret_hosts_upd.bak /opt/zapret/ipset/zapret-hosts-user.txt 2>/dev/null || true
+            chmod 644 /opt/zapret/ipset/zapret-hosts-user.txt 2>/dev/null || true
+        fi
+        chown -R root:root /opt/zapret 2>/dev/null || true
+        chmod -R a+rX /opt/zapret 2>/dev/null || true
+        if command -v restorecon >/dev/null 2>&1; then
+            restorecon -R -F /opt/zapret 2>/dev/null || true
+        fi
         restart_service
         ;;
     uninstall)
@@ -4016,16 +4349,25 @@ case "$1" in
         rm -f /etc/init.d/zapret /etc/rc.d/zapret /etc/dinit.d/zapret /etc/dinit.d/boot.d/zapret /etc/sv/zapret 2>/dev/null || true
         systemctl daemon-reload 2>/dev/null || true
         rm -rf /opt/zapret
-        rm -f /run/polkit-1/rules.d/90-zapret-gtk.rules /etc/polkit-1/rules.d/90-zapret-gtk.rules /etc/polkit-1/localauthority/50-local.d/90-zapret-gtk.pkla /usr/bin/zapret-control /opt/zapret/zapret-control.sh 2>/dev/null || true
+        rm -f /etc/tmpfiles.d/zapret-gtk.conf /run/zapret-gtk-polkit.active /run/polkit-1/rules.d/90-zapret-gtk.rules /etc/polkit-1/rules.d/90-zapret-gtk.rules /etc/polkit-1/rules.d/.90-zapret-gtk.rules.tmp /etc/polkit-1/localauthority/50-local.d/90-zapret-gtk.pkla /usr/bin/zapret-control /opt/zapret/zapret-control.sh 2>/dev/null || true
+        reload_polkit_daemon
         exit 0
         ;;
     *)
-        echo "Usage: $0 {start|stop|restart|cat-config|apply-strategy|apply-hostlist <mode>|blockcheck <repeats> <level> [domains]|easy-install|kill-pid <pid>|cleanup-session <pid>|clean-session|update|uninstall}"
+        echo "Usage: $0 {init-session|start|stop|restart|cat-config|apply-strategy|apply-hostlist <mode>|blockcheck <repeats> <level> [domains]|easy-install|kill-pid <pid>|cleanup-session <pid>|clean-session|update|uninstall}"
         exit 1
         ;;
 esac
 EOF
-chmod 755 /usr/bin/zapret-control 2>/dev/null || true
+chmod 755 /usr/bin/.zapret-control.tmp 2>/dev/null || true
+chown root:root /usr/bin/.zapret-control.tmp 2>/dev/null || true
+if command -v restorecon >/dev/null 2>&1; then
+    restorecon -F /usr/bin/.zapret-control.tmp 2>/dev/null || true
+fi
+mv -f /usr/bin/.zapret-control.tmp /usr/bin/zapret-control
+if command -v restorecon >/dev/null 2>&1; then
+    restorecon -F /usr/bin/zapret-control 2>/dev/null || true
+fi
 rm -f /opt/zapret/zapret-control.sh 2>/dev/null || true
 
 if [ -f /opt/zapret/config ] && grep -q '^--filter-' /opt/zapret/config 2>/dev/null; then
@@ -4045,45 +4387,12 @@ if [ -f /opt/zapret/config ] && grep -q '^--filter-' /opt/zapret/config 2>/dev/n
         { print }
     ' /opt/zapret/config > /opt/zapret/config.tmp && mv -f /opt/zapret/config.tmp /opt/zapret/config
     chmod 644 /opt/zapret/config
-fi
-
-CURRENT_USER=""
-if [ -n "$PKEXEC_UID" ]; then
-    CURRENT_USER=$(getent passwd "$PKEXEC_UID" | cut -d: -f1)
-fi
-if [ -z "$CURRENT_USER" ] && [ -n "$SUDO_USER" ]; then
-    CURRENT_USER="$SUDO_USER"
-fi
-if [ -z "$CURRENT_USER" ]; then
-    CURRENT_USER=$(logname 2>/dev/null || true)
-fi
-
-if [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != "root" ] && echo "$CURRENT_USER" | grep -Eq '^[a-zA-Z0-9_.][a-zA-Z0-9_.-]*$'; then
-mkdir -p /run/polkit-1/rules.d 2>/dev/null || true
-cat << EOF > /run/polkit-1/rules.d/90-zapret-gtk.rules
-/* Zapret-GTK Ephemeral Runtime Rule */
-polkit.addRule(function(action, subject) {
-    if (action.id == "org.freedesktop.policykit.exec") {
-        var prog = action.lookup("program");
-        if (prog && prog == "/usr/bin/zapret-control" && subject.user == "$CURRENT_USER") {
-            return polkit.Result.YES;
-        }
-    }
-});
-EOF
-chmod 644 /run/polkit-1/rules.d/90-zapret-gtk.rules 2>/dev/null || true
-rm -f /etc/polkit-1/rules.d/90-zapret-gtk.rules /etc/polkit-1/localauthority/50-local.d/90-zapret-gtk.pkla 2>/dev/null || true
-fi
-
-if [ -n "$PKEXEC_UID" ]; then
-    U_HOME=$(getent passwd "$PKEXEC_UID" | cut -d: -f6)
-    U_NAME=$(getent passwd "$PKEXEC_UID" | cut -d: -f1)
-    if [ -n "$U_HOME" ] && [ -d "$U_HOME/.config/zapret-gtk" ]; then
-        chown -R "$U_NAME:$U_NAME" "$U_HOME/.config/zapret-gtk" 2>/dev/null || true
-        chmod 700 "$U_HOME/.config/zapret-gtk" 2>/dev/null || true
-        chmod 600 "$U_HOME/.config/zapret-gtk"/* 2>/dev/null || true
+    if command -v restorecon >/dev/null 2>&1; then
+        restorecon -F /opt/zapret/config 2>/dev/null || true
     fi
 fi
+
+/usr/bin/zapret-control init-session
 "#
 }
 
@@ -4104,7 +4413,7 @@ fn get_zapret_remote_commit_hash() -> Option<String> {
     }
 }
 
-fn check_zapret_update_available() -> Option<bool> {
+fn get_zapret_local_commit_hash() -> Option<String> {
     let zapret_dir = Path::new("/opt/zapret");
     if !zapret_dir.exists() {
         return None;
@@ -4118,11 +4427,59 @@ fn check_zapret_update_available() -> Option<bool> {
     }
     let local_hash = String::from_utf8_lossy(&local_out.stdout).trim().to_string();
     if local_hash.is_empty() {
-        return None;
+        None
+    } else {
+        Some(local_hash)
     }
+}
 
+fn check_zapret_update_available_with_hash() -> Option<(bool, String)> {
+    let local_hash = get_zapret_local_commit_hash()?;
     let remote_hash = get_zapret_remote_commit_hash()?;
-    Some(local_hash != remote_hash)
+    Some((local_hash != remote_hash, remote_hash))
+}
+
+fn is_zapret_service_active() -> bool {
+    let init_sys = get_init_system();
+    let mut is_active = false;
+    if init_sys == "systemd" {
+        if let Ok(o) = Command::new("systemctl").arg("is-active").arg("zapret").output() {
+            if String::from_utf8_lossy(&o.stdout).trim() == "active" {
+                is_active = true;
+            }
+        }
+    } else if init_sys == "openrc" {
+        if let Ok(o) = Command::new("rc-service").arg("zapret").arg("status").output() {
+            if o.status.success() {
+                is_active = true;
+            }
+        }
+    } else if init_sys == "runit" {
+        if let Ok(o) = Command::new("sv").arg("status").arg("zapret").output() {
+            if String::from_utf8_lossy(&o.stdout).trim().starts_with("run:") {
+                is_active = true;
+            }
+        }
+    } else if init_sys == "sysvinit" {
+        if let Ok(o) = Command::new("service").arg("zapret").arg("status").output() {
+            let out = String::from_utf8_lossy(&o.stdout);
+            if out.contains("is running") || o.status.success() {
+                is_active = true;
+            }
+        }
+    } else if init_sys == "dinit" {
+        if let Ok(o) = Command::new("dinitctl").arg("status").arg("zapret").output() {
+            let out = String::from_utf8_lossy(&o.stdout);
+            if out.contains("State: STARTED") {
+                is_active = true;
+            }
+        }
+    } else if let Ok(o) = Command::new("pgrep").arg("-x").arg("nfqws").output() {
+        if o.status.success() {
+            is_active = true;
+        }
+    }
+    is_active
 }
 
 fn get_init_system() -> String {

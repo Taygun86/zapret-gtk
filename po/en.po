@@ -531,3 +531,13 @@ msgstr "Failed to apply strategy:\n{}"
 msgid "Tamamlanıyor..."
 msgstr "Completing..."
 
+msgid "Sistem kontrol ediliyor..."
+msgstr "Checking system..."
+
+msgid "Yetki kuralları yapılandırılıyor..."
+msgstr "Configuring authorization rules..."
+
+msgid "Hedef Sürüm"
+msgstr "Target Version"
+
+
